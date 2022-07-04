@@ -7,10 +7,10 @@ import numpy as np
 import logging
 
 # libs from fedscale
-from fedscale.core.arg_parser import args
+from fedscale.core.arg_parser import task_set
 from fedscale.dataloaders.nlp import mask_tokens
 
-if args.task == "detection":
+if "detection" in task_set:
     from torch.autograd import Variable
     import torch.nn as nn
     import torch.optim as optim
@@ -46,7 +46,7 @@ def cal_accuracy(targets, outputs):
 
     return temp_acc, temp_all_or_false, temp_len
 
-def test_model(rank, model, test_data, device='cpu', criterion=nn.NLLLoss(), tokenizer=None):
+def test_model(rank, model, args, test_data, device='cpu', criterion=nn.NLLLoss(), tokenizer=None):
 
     test_loss = 0
     correct = 0

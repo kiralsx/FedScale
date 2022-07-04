@@ -10,9 +10,9 @@ import collections
 import numpy
 
 # libs from fedscale
-from fedscale.core.arg_parser import args
+from fedscale.core.arg_parser import args_dict, task_set
 from fedscale.dataloaders.utils_data import get_data_transform
-from fedscale.core.utils.model_test_module import test_model
+from fedscale.core.utils.model_test_module import test_model 
 from fedscale.dataloaders.divide_data import select_dataset, DataPartitioner
 from fedscale.core.client_manager import clientManager
 from fedscale.core.utils.yogi import YoGi
@@ -29,8 +29,8 @@ from torchvision import datasets, transforms
 import torchvision.models as tormodels
 from torch.utils.data.sampler import WeightedRandomSampler
 
-tokenizer = None
-if args.task == 'nlp' or args.task == 'text_clf':
+# tokenizer = None # TODO: check if using a dict is correct
+if 'nlp' in task_set or 'text_clf' in task_set:
     from fedscale.dataloaders.nlp import mask_tokens, load_and_cache_examples
     from transformers import (
         AdamW,
@@ -40,14 +40,14 @@ if args.task == 'nlp' or args.task == 'text_clf':
         MobileBertForPreTraining,
         AutoModelWithLMHead
     )
-    tokenizer = AlbertTokenizer.from_pretrained('albert-base-v2', do_lower_case=True)
-elif args.task == 'speech':
+    # tokenizer = AlbertTokenizer.from_pretrained('albert-base-v2', do_lower_case=True)
+elif 'speech' in task_set:
     import numba
     from fedscale.dataloaders.speech import SPEECH
     from fedscale.dataloaders.transforms_wav import ChangeSpeedAndPitchAudio, ChangeAmplitude, FixAudioLength, ToMelSpectrogram, LoadAudio, ToTensor
     from fedscale.dataloaders.transforms_stft import ToSTFT, StretchAudioOnSTFT, TimeshiftAudioOnSTFT, FixSTFTDimension, ToMelSpectrogramFromSTFT, DeleteSTFT, AddBackgroundNoiseOnSTFT
     from fedscale.dataloaders.speech import BackgroundNoiseDataset
-elif args.task == 'detection':
+elif 'detection' in task_set:
     import pickle
     from fedscale.dataloaders.rcnn.lib.roi_data_layer.roidb import combined_roidb
     from fedscale.dataloaders.rcnn.lib.datasets.factory import get_imdb
@@ -60,32 +60,35 @@ elif args.task == 'detection':
     from fedscale.dataloaders.rcnn.lib.model.rpn.bbox_transform import clip_boxes
     from fedscale.dataloaders.rcnn.lib.model.roi_layers import nms
     from fedscale.dataloaders.rcnn.lib.model.rpn.bbox_transform import bbox_transform_inv
-elif args.task == 'voice':
+elif 'voice' in task_set:
     from torch_baidu_ctc import CTCLoss
-elif args.task == 'rl':
+elif 'rl' in task_set:
     import gym
     from fedscale.dataloaders.dqn import *
+
+tokenizer = dict()
+for job_name, arg in args_dict.items():
+    tokenizer[job_name] = AlbertTokenizer.from_pretrained(arg.model, do_lower_case=True) if arg.task=='nlp' or arg.task=='text_clf' else None
 
 # shared functions of aggregator and clients
 # initiate for nlp
 
-os.environ['MASTER_ADDR'] = args.ps_ip
-os.environ['MASTER_PORT'] = args.ps_port
+os.environ['MASTER_ADDR'] = list(args_dict.values())[0].ps_ip
+os.environ['MASTER_PORT'] = list(args_dict.values())[0].ps_port
 
 
 outputClass = {'Mnist': 10, 'cifar10': 10, "imagenet": 1000, 'emnist': 47,'amazon':5,
                 'openImg': 596, 'google_speech': 35, 'femnist': 62, 'yelp': 5, 'inaturalist' : 1010
             }
 
-def init_model():
-    global tokenizer
-
-    logging.info("Initializing the model ...")
+def init_model(job_name, args):
+    # global tokenizer
+    logging.info(f"Initializing the model for {job_name} ...")
 
     if args.task == 'nlp':
         config = AutoConfig.from_pretrained(os.path.join(args.data_dir, args.model+'-config.json'))
         model = AutoModelWithLMHead.from_config(config)
-        tokenizer = AlbertTokenizer.from_pretrained(args.model, do_lower_case=True)
+        # tokenizer = AlbertTokenizer.from_pretrained(args.model, do_lower_case=True)
 
         # model_name = 'google/mobilebert-uncased'
         # config = AutoConfig.from_pretrained(model_name)
@@ -94,7 +97,6 @@ def init_model():
         # model = AutoModelWithLMHead.from_config(config)
 
     elif args.task == 'text_clf':
-
         if args.model == 'albert':
             from transformers import AlbertForSequenceClassification
             from transformers import AutoConfig
@@ -174,7 +176,7 @@ def init_model():
     return model
 
 
-def init_dataset():
+def init_dataset(job_name, args):
 
     if args.task == "detection":
         if not os.path.exists(args.data_cache):
@@ -239,8 +241,8 @@ def init_dataset():
             test_dataset = OpenImage(args.data_dir, dataset='test', transform=test_transform)
 
         elif args.data_set == 'blog':
-            train_dataset = load_and_cache_examples(args, tokenizer, evaluate=False)
-            test_dataset = load_and_cache_examples(args, tokenizer, evaluate=True)
+            train_dataset = load_and_cache_examples(args, tokenizer[job_name], evaluate=False)
+            test_dataset = load_and_cache_examples(args, tokenizer[job_name], evaluate=True)
 
         elif args.data_set == 'stackoverflow':
             from fedscale.dataloaders.stackoverflow import stackoverflow
@@ -251,8 +253,8 @@ def init_dataset():
         elif args.data_set == 'amazon':
             if args.model == 'albert':
                 import fedscale.dataloaders.amazon as fl_loader
-                train_dataset = fl_loader.AmazonReview_loader(args.data_dir, train=True, tokenizer=tokenizer, max_len=args.clf_block_size  )
-                test_dataset = fl_loader.AmazonReview_loader(args.data_dir, train=False, tokenizer=tokenizer, max_len=args.clf_block_size )
+                train_dataset = fl_loader.AmazonReview_loader(args.data_dir, train=True, tokenizer=tokenizer[job_name], max_len=args.clf_block_size  )
+                test_dataset = fl_loader.AmazonReview_loader(args.data_dir, train=False, tokenizer=tokenizer[job_name], max_len=args.clf_block_size )
 
             elif args.model == 'lr':
                 import fedscale.dataloaders.word2vec as fl_loader
@@ -262,8 +264,8 @@ def init_dataset():
         elif args.data_set == 'yelp':
             import fedscale.dataloaders.yelp as fl_loader
 
-            train_dataset = fl_loader.TextSentimentDataset(args.data_dir, train=True, tokenizer=tokenizer, max_len=args.clf_block_size)
-            test_dataset = fl_loader.TextSentimentDataset(args.data_dir, train=False, tokenizer=tokenizer, max_len=args.clf_block_size)
+            train_dataset = fl_loader.TextSentimentDataset(args.data_dir, train=True, tokenizer=tokenizer[job_name], max_len=args.clf_block_size)
+            test_dataset = fl_loader.TextSentimentDataset(args.data_dir, train=False, tokenizer=tokenizer[job_name], max_len=args.clf_block_size)
 
         elif args.data_set == 'google_speech':
             bkg = '_background_noise_'
@@ -284,17 +286,17 @@ def init_dataset():
                                             valid_feature_transform]))
         elif args.data_set == 'common_voice':
             from fedscale.dataloaders.voice_data_loader import SpectrogramDataset
-            train_dataset = SpectrogramDataset(audio_conf=model.audio_conf,
+            train_dataset = SpectrogramDataset(audio_conf=args.model.audio_conf,
                                         data_dir=args.data_dir,
-                                        labels=model.labels,
+                                        labels=args.model.labels,
                                         train=True,
                                         normalize=True,
                                         speed_volume_perturb=args.speed_volume_perturb,
                                         spec_augment=args.spec_augment,
                                         data_mapfile=args.data_mapfile)
-            test_dataset = SpectrogramDataset(audio_conf=model.audio_conf,
+            test_dataset = SpectrogramDataset(audio_conf=args.model.audio_conf,
                                         data_dir=args.data_dir,
-                                        labels=model.labels,
+                                        labels=args.model.labels,
                                         train=False,
                                         normalize=True,
                                         speed_volume_perturb=False,

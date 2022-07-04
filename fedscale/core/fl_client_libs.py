@@ -3,7 +3,9 @@ from fedscale.core.fllibs import *
 from torch.nn.utils.rnn import pad_sequence
 import os
 
-logDir = os.path.join(args.log_path, "logs", args.job_name, args.time_stamp, 'executor')
+# logDir = os.path.join(args.log_path, "logs", args.job_name, args.time_stamp, 'executor')
+# logDir = os.path.join(list(args_dict.values())[0].log_path, list(args_dict.values())[0].time_stamp, 'executor')
+logDir = os.path.join(list(args_dict.values())[0].log_path, 'recent', 'executor')
 logFile = os.path.join(logDir, 'log')
 
 def init_logging():
@@ -19,29 +21,40 @@ def init_logging():
                         logging.StreamHandler()
                     ])
 
-def get_ps_ip():
-    global args
+# def get_ps_ip():
+#     global args
 
-    ip_file = os.path.join(logDir, '../aggregator/ip')
-    ps_ip = None
-    while not os.path.exists(ip_file):
-        time.sleep(1)
+#     ip_file = os.path.join(logDir, '../aggregator/ip')
+#     ps_ip = None
+#     while not os.path.exists(ip_file):
+#         time.sleep(1)
 
-    with open(ip_file, 'rb') as fin:
-        ps_ip = pickle.load(fin)
+#     with open(ip_file, 'rb') as fin:
+#         ps_ip = pickle.load(fin)
 
-    args.ps_ip = ps_ip
-    logging.info('Config ps_ip on {}, args.ps_ip is {}'.format(ps_ip, args.ps_ip))
+#     args.ps_ip = ps_ip
+#     logging.info('Config ps_ip on {}, args.ps_ip is {}'.format(ps_ip, args.ps_ip))
 
 
 def initiate_client_setting():
     init_logging()
 
+# dl = torch.utils.data.DataLoader(..., collate_fn = lambda b: my_collator_with_param(b, 3))
 
-def collate(examples):
-    if tokenizer._pad_token is None:
-        return (pad_sequence(examples, batch_first=True), None)
-    return (pad_sequence(examples, batch_first=True, padding_value=tokenizer.pad_token_id), None)
+class MyCollator(object):
+    def __init__(self, tokenizer):
+        self.tokenizer = tokenizer
+
+    def __call__(self, examples):
+        if self.tokenizer._pad_token is None: # TODO: change to corresponding tokenizer
+            return (pad_sequence(examples, batch_first=True), None)
+        return (pad_sequence(examples, batch_first=True, padding_value=self.tokenizer.pad_token_id), None)
+        
+
+# def collate(examples, tokenizer):
+#     if tokenizer._pad_token is None: # TODO: change to corresponding tokenizer
+#         return (pad_sequence(examples, batch_first=True), None)
+#     return (pad_sequence(examples, batch_first=True, padding_value=tokenizer.pad_token_id), None)
 
 def voice_collate_fn(batch):
     def func(p):

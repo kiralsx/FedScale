@@ -16,25 +16,26 @@ import fedscale.core.job_api_pb2 as job_api_pb2
 class Executor(object):
     """Each executor takes certain resource to run real training.
        Each run simulates the execution of an individual client"""
-    def __init__(self, args):
+    def __init__(self, args_dict):
 
-        self.args = args
-        self.device = args.cuda_device if args.use_cuda else torch.device('cpu')
-        self.num_executors = args.num_executors
+        self.args_dict = args_dict
+        self.demo_arg = list(args_dict.values())[0]
+        self.device = self.demo_arg.cuda_device if self.demo_arg.use_cuda else torch.device('cpu')
+        self.num_executors = self.demo_arg.num_executors
         # ======== env information ========
-        self.this_rank = args.this_rank
+        self.this_rank = self.demo_arg.this_rank
         self.executor_id = str(self.this_rank)
 
         # ======== model and data ========
         self.model = self.training_sets = self.test_dataset = None
-        self.temp_model_path = os.path.join(logDir, 'model_'+str(args.this_rank)+'.pth.tar')
+        self.temp_model_path = {job_name: os.path.join(logDir, 'model_'+job_name+str(self.this_rank)+'.pth.tar') for job_name in self.args_dict}
 
         # ======== channels ========
-        self.aggregator_communicator = ClientConnections(args.ps_ip, args.ps_port)
+        self.aggregator_communicator = ClientConnections(self.demo_arg.ps_ip, self.demo_arg.ps_port)
 
         # ======== runtime information ========
-        self.collate_fn = None
-        self.task = args.task
+        self.collate_fn = {job_name: None for job_name in self.args_dict} #TODO: check how to modify this
+        self.task = {job_name: args.task for job_name, args in self.args_dict.items()}
         self.round = 0
         self.start_run_time = time.time()
         self.received_stop_request = False
@@ -43,7 +44,7 @@ class Executor(object):
         super(Executor, self).__init__()
 
     def setup_env(self):
-        logging.info(f"(EXECUTOR:{self.this_rank}) is setting up environ ...")
+        logging.info(f"(EXECUTOR{self.this_rank}): is setting up environ ...")
         self.setup_seed(seed=1)
 
     def setup_communication(self):
@@ -73,13 +74,40 @@ class Executor(object):
 
     def init_model(self):
         """Return the model architecture used in training"""
-        assert self.args.engine == events.PYTORCH, "Please override this function to define non-PyTorch models"
-        model = init_model()
-        model = model.to(device=self.device)
-        return model
+        assert self.demo_arg.engine == events.PYTORCH, "Please override this function to define non-PyTorch models"
+        return {job_name: init_model(job_name, args).to(device=self.device) for job_name, args in self.args_dict.items()}
+
+        # model = init_model()
+        # model = model.to(device=self.device)
+        # return model
 
     def init_data(self):
         """Return the training and testing dataset"""
+        training_sets = {}
+        testing_sets = {}
+        for job_name, args in self.args_dict.items():
+            train_dataset, test_dataset = init_dataset(job_name=job_name, args=args)
+            if args.task == "rl":
+                return train_dataset, test_dataset
+            # load data partitioner (entire_train_data)
+            logging.info(f"(EXECUTOR:{self.this_rank}): Data partitioner starts on {job_name}...")
+
+            training_sets[job_name] = DataPartitioner(data=train_dataset, args=args, numOfClass=args.num_class)
+            training_sets[job_name].partition_data_helper(num_clients=args.total_worker, data_map_file=args.data_map_file)
+
+            testing_sets[job_name] = DataPartitioner(data=test_dataset, args=args, numOfClass=args.num_class, isTest=True)
+            testing_sets[job_name].partition_data_helper(num_clients=self.num_executors)
+
+            logging.info(f"(EXECUTOR:{self.this_rank}): Data partitioner completes ...")
+
+            if self.task == 'nlp':
+                self.collate_fn[job_name] = MyCollator(tokenizer=tokenizer[job_name])
+            elif self.task == 'voice':
+                self.collate_fn[job_name] = voice_collate_fn
+            
+        return training_sets, testing_sets
+
+        """
         train_dataset, test_dataset = init_dataset()
         if self.task == "rl":
             return train_dataset, test_dataset
@@ -94,13 +122,13 @@ class Executor(object):
 
         logging.info("Data partitioner completes ...")
 
-
         if self.task == 'nlp':
             self.collate_fn = collate
         elif self.task == 'voice':
             self.collate_fn = voice_collate_fn
 
         return training_sets, testing_sets
+        """
 
 
     def run(self):
@@ -173,7 +201,8 @@ class Executor(object):
 
     def report_executor_info_handler(self):
         """Return the statistics of training dataset"""
-        return self.training_sets.getSize()
+        return {job_name: self.training_sets[job_name].getSize() for job_name in self.training_sets}
+        # return self.training_sets.getSize()
 
 
     def update_model_handler(self, model):
@@ -217,7 +246,7 @@ class Executor(object):
         client_model = self.load_global_model() if model is None else model
 
         conf.clientId, conf.device = clientId, self.device
-        conf.tokenizer = tokenizer
+        conf.tokenizer = tokenizer # TODO: change to corresponding tokenizer
         if args.task == "rl":
             client_data = self.training_sets
             client = RLClient(conf)
@@ -256,12 +285,12 @@ class Executor(object):
 
             if self.args.engine == events.PYTORCH:
                 test_res = test_model(self.this_rank, model, data_loader, 
-                    device=device, criterion=criterion, tokenizer=tokenizer)
+                    device=device, criterion=criterion, tokenizer=tokenizer) # TODO: change to corresponding tokenizer
             else:
                 raise Exception(f"Need customized implementation for model testing in {self.args.engine} engine")
 
             test_loss, acc, acc_5, testResults = test_res
-            logging.info("After aggregation round {}, CumulTime {}, eval_time {}, test_loss {}, test_accuracy {:.2f}%, test_5_accuracy {:.2f}% \n"
+            logging.info(f"(EXECUTOR:{self.this_rank}): After aggregation round {}, CumulTime {}, eval_time {}, test_loss {}, test_accuracy {:.2f}%, test_5_accuracy {:.2f}% \n"
                 .format(self.round, round(time.time() - self.start_run_time, 4), round(time.time() - evalStart, 4), test_loss, acc*100., acc_5*100.))
 
         gc.collect()
@@ -296,8 +325,9 @@ class Executor(object):
 
     def event_monitor(self):
         """Activate event handler once receiving new message"""
-        logging.info("Start monitoring events ...")
+        logging.info("(EXECUTOR:{self.this_rank}): Start monitoring events ...")
         self.client_register()
+        exit()
 
         while self.received_stop_request == False:
             if len(self.event_queue) > 0:
@@ -336,5 +366,5 @@ class Executor(object):
 
 
 if __name__ == "__main__":
-    executor = Executor(args)
+    executor = Executor(args_dict)
     executor.run()

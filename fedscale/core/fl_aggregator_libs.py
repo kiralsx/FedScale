@@ -1,13 +1,15 @@
 # package for aggregator
 from fedscale.core.fllibs import *
+# import os
 
-logDir = os.path.join(args.log_path, "logs", args.job_name, args.time_stamp, 'aggregator')
+# logDir = os.path.join(list(args_dict.values())[0].log_path, list(args_dict.values())[0].time_stamp, 'aggregator')
+logDir = os.path.join(list(args_dict.values())[0].log_path, 'recent', 'aggregator')
+
 logFile = os.path.join(logDir, 'log')
 
 def init_logging():
     if not os.path.isdir(logDir):
         os.makedirs(logDir, exist_ok=True)
-
     logging.basicConfig(
                     format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
                     datefmt='(%m-%d) %H:%M:%S',
@@ -17,7 +19,9 @@ def init_logging():
                         logging.StreamHandler()
                     ])
 
-def dump_ps_ip():
+    logging.info(f"logDir {logDir}")
+
+def dump_ps_ip(args):
     hostname_map = {}
     with open('ipmapping', 'rb') as fin:
         hostname_map = pickle.load(fin)
