@@ -433,7 +433,7 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
         self.global_virtual_clock += np.max(list(self.round_duration.values()))
         assert not self.resource_manager.has_next_task(), f'round_completion_handler: resource manager has pending tasks, {self.resource_manager.get_queue()}'
         
-        self.sampled_participants = {job_name: [] for job_name in self.args_dict}
+        # self.sampled_participants = {job_name: [] for job_name in self.args_dict}
         for job_name in args_dict:
             self.round[job_name] += 1
             if self.round[job_name] % args_dict[job_name].decay_round == 0:
@@ -527,37 +527,37 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
     def serialize_response(self, responses):
         return pickle.dumps(responses)
 
-    def testing_completion_handler(self, client_id, results):
+    def testing_completion_handler(self, job_name, results):
         """Each executor will handle a subset of testing dataset"""
 
         results = results['results']
 
         # List append is thread-safe
-        self.test_result_accumulator.append(results)
+        self.test_result_accumulator[job_name].append(results)
 
         # Have collected all testing results
-        if len(self.test_result_accumulator) == len(self.executors):
-            accumulator = self.test_result_accumulator[0]
+        if len(self.test_result_accumulator[job_name]) == len(self.executors):
+            accumulator = self.test_result_accumulator[job_name][0]
             for i in range(1, len(self.test_result_accumulator)):
-                if self.args_dict.task == "detection":
+                if self.args_dict[job_name].task == "detection":
                     for key in accumulator:
                         if key == "boxes":
-                            for j in range(self.imdb.num_classes):
-                                accumulator[key][j] = accumulator[key][j] + self.test_result_accumulator[i][key][j]
+                            for j in range(self.imdb[job_name].num_classes):
+                                accumulator[key][j] = accumulator[key][j] + self.test_result_accumulator[job_name][i][key][j]
                         else:
-                            accumulator[key] += self.test_result_accumulator[i][key]
+                            accumulator[key] += self.test_result_accumulator[job_name][i][key]
                 else:
                     for key in accumulator:
-                        accumulator[key] += self.test_result_accumulator[i][key]
-            if self.args_dict.task == "detection":
-                self.testing_history['perf'][self.round] = {'round': self.round, 'clock': self.global_virtual_clock,
-                    'top_1': round(accumulator['top_1']*100.0/len(self.test_result_accumulator), 4),
-                    'top_5': round(accumulator['top_5']*100.0/len(self.test_result_accumulator), 4),
+                        accumulator[key] += self.test_result_accumulator[job_name][i][key]
+            if self.args_dict[job_name].task == "detection":
+                self.testing_history[job_name]['perf'][self.round[job_name]] = {'round': self.round[job_name], 'clock': self.global_virtual_clock,
+                    'top_1': round(accumulator['top_1']*100.0/len(self.test_result_accumulator[job_name]), 4),
+                    'top_5': round(accumulator['top_5']*100.0/len(self.test_result_accumulator[job_name]), 4),
                     'loss': accumulator['test_loss'],
                     'test_len': accumulator['test_len']
                 }
             else:
-                self.testing_history['perf'][self.round] = {'round': self.round, 'clock': self.global_virtual_clock,
+                self.testing_history[job_name]['perf'][self.round[job_name]] = {'round': self.round[job_name], 'clock': self.global_virtual_clock,
                     'top_1': round(accumulator['top_1']/accumulator['test_len']*100.0, 4),
                     'top_5': round(accumulator['top_5']/accumulator['test_len']*100.0, 4),
                     'loss': accumulator['test_loss']/accumulator['test_len'],
@@ -565,19 +565,19 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
                 }
 
 
-            logging.info("FL Testing in round: {}, virtual_clock: {}, top_1: {} %, top_5: {} %, test loss: {:.4f}, test len: {}"
-                    .format(self.round, self.global_virtual_clock, self.testing_history['perf'][self.round]['top_1'],
-                    self.testing_history['perf'][self.round]['top_5'], self.testing_history['perf'][self.round]['loss'],
-                    self.testing_history['perf'][self.round]['test_len']))
+            logging.info("[{}] FL Testing in round: {}, virtual_clock: {}, top_1: {} %, top_5: {} %, test loss: {:.4f}, test len: {}"
+                    .format(job_name, self.round[job_name], round(self.global_virtual_clock), self.testing_history[job_name]['perf'][self.round[job_name]]['top_1'],
+                    self.testing_history[job_name]['perf'][self.round[job_name]]['top_5'], self.testing_history[job_name]['perf'][self.round[job_name]]['loss'],
+                    self.testing_history[job_name]['perf'][self.round[job_name]]['test_len']))
 
             # Dump the testing result
-            with open(os.path.join(logDir, 'testing_perf'), 'wb') as fout:
-                pickle.dump(self.testing_history, fout)
+            with open(os.path.join(logDir, f'{job_name}_testing_perf'), 'wb') as fout:
+                pickle.dump(self.testing_history[job_name], fout)
 
-            if len(self.loss_accumulator):
-                self.log_test_result()
+            # if len(self.loss_accumulator):
+            #     self.log_test_result()
 
-            self.broadcast_events_queue.append(events.START_ROUND)
+            self.broadcast_events_queue.append((job_name, events.START_ROUND))
 
 
     def broadcast_aggregator_events(self, job_name, event):
@@ -613,10 +613,9 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
         return train_config, model
 
 
-    def get_test_config(self, client_id):
+    def get_test_config(self, job_name, executor_id, ):
         """FL model testing on clients"""
-
-        return {'client_id':client_id}
+        return {'job_name': job_name, 'executor_id':executor_id}
 
     def get_global_model(self, job_name):
         """Get global model that would be used by all FL clients (in default FL)"""
@@ -675,7 +674,7 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
                     if self.experiment_mode != events.SIMULATION_MODE:
                         self.individual_client_events[executor_id].appendleft((job_name, events.CLIENT_TRAIN))
             elif current_event == events.MODEL_TEST:
-                response_msg = self.get_test_config(executor_id)
+                response_msg = self.get_test_config(job_name, executor_id)
             elif current_event == events.UPDATE_MODEL:
                 response_msg = {'job_name': job_name}
                 response_data = self.get_global_model(job_name)
@@ -711,7 +710,7 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
             # so we need to specify whether to ask client to do so (in case of straggler/timeout in real FL).
             # meta represents job_name
             job_name = meta_result
-            logging.info(f"[Complete Handler] executor[{executor_id}] completes -> event: {event} meta: {meta_result} client: {client_id}")
+            logging.info(f"[Complete Handler] executor[{executor_id}] completes -> event: {event} job_name: {job_name} client: {client_id}")
             if execution_status is False:
                 logging.error(f"Executor {executor_id} fails to run client {client_id}, due to {execution_msg}")
             if self.resource_manager.has_next_task(executor_id):
@@ -720,7 +719,9 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
                 self.individual_client_events[executor_id].appendleft((job_name, events.CLIENT_TRAIN))
 
         elif event in (events.MODEL_TEST, events.UPLOAD_MODEL):
-            logging.info(f'executor[{executor_id}] completes -> event: {event} meta: {meta_result} client: {client_id}')
+            # meta represents job_name
+            job_name = meta_result
+            logging.info(f'executor[{executor_id}] completes -> event: {event} job_name: {job_name} client: {client_id}')
             self.add_event_handler(executor_id, event, meta_result, data_result)
             
         else:
@@ -768,7 +769,8 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
                         self.round_completion_handler()
 
                 elif current_event == events.MODEL_TEST:
-                    self.testing_completion_handler(client_id, self.deserialize_response(data))
+                    job_name = meta
+                    self.testing_completion_handler(job_name, self.deserialize_response(data))
 
                 else:
                     logging.error(f"Event {current_event} is not defined")

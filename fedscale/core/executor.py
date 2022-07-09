@@ -176,10 +176,10 @@ class Executor(object):
         self.dispatch_worker_events(response)
         return client_id, train_res
 
-    def Test(self, config):
+    def Test(self, job_name):
         """Model Testing. By default, we test the accuracy on all data of clients in the test group"""
 
-        test_res = self.testing_handler(args=self.args)
+        test_res = self.testing_handler(job_name, args=self.args_dict[job_name])
         test_res = {'executorId': self.this_rank, 'results': test_res}
 
         # Report execution completion information
@@ -187,7 +187,7 @@ class Executor(object):
             job_api_pb2.CompleteRequest(
                 client_id = self.executor_id, executor_id = self.executor_id,
                 event = events.MODEL_TEST, status = True, msg = None,
-                meta_result = None, data_result = self.serialize_response(test_res)
+                meta_result = job_name, data_result = self.serialize_response(test_res)
             )
         )
         self.dispatch_worker_events(response)
@@ -265,19 +265,19 @@ class Executor(object):
         return train_res
 
 
-    def testing_handler(self, args):
+    def testing_handler(self, job_name, args):
         """Test model"""
         evalStart = time.time()
         device = self.device
-        model = self.load_global_model()
+        model = self.load_global_model(job_name)
         if self.task == 'rl':
             client = RLClient(args)
             test_res = client.test(args, self.this_rank, model, device=device)
             _, _, _, testResults = test_res
         else:
-            data_loader = select_dataset(self.this_rank, self.testing_sets, 
-                batch_size=args.test_bsz, args = self.args, 
-                isTest=True, collate_fn=self.collate_fn
+            data_loader = select_dataset(self.this_rank, self.testing_sets[job_name], 
+                batch_size=args.test_bsz, args = args, 
+                isTest=True, collate_fn=self.collate_fn[job_name]
             )
 
             if self.task == 'voice':
@@ -285,15 +285,15 @@ class Executor(object):
             else:
                 criterion = torch.nn.CrossEntropyLoss().to(device=device)
 
-            if self.args.engine == events.PYTORCH:
-                test_res = test_model(self.this_rank, model, data_loader, 
-                    device=device, criterion=criterion, tokenizer=tokenizer) # TODO: change to corresponding tokenizer
+            if self.demo_arg.engine == events.PYTORCH:
+                test_res = test_model(self.this_rank, model, args, data_loader, 
+                    device=device, criterion=criterion, tokenizer=tokenizer[job_name]) # TODO: change to corresponding tokenizer
             else:
-                raise Exception(f"Need customized implementation for model testing in {self.args.engine} engine")
+                raise Exception(f"Need customized implementation for model testing in {self.demo_arg.engine} engine")
 
             test_loss, acc, acc_5, testResults = test_res
-            logging.info("(EXECUTOR:{}): After aggregation round {}, CumulTime {}, eval_time {}, test_loss {}, test_accuracy {:.2f}%, test_5_accuracy {:.2f}% \n"
-                .format(self.executor_id, self.round, round(time.time() - self.start_run_time, 4), round(time.time() - evalStart, 4), test_loss, acc*100., acc_5*100.))
+            logging.info("(EXECUTOR:{}): [{}] After aggregation round {}, CumulTime {}, eval_time {}, test_loss {}, test_accuracy {:.2f}%, test_5_accuracy {:.2f}% \n"
+                .format(self.executor_id, job_name, self.round[job_name], round(time.time() - self.start_run_time, 4), round(time.time() - evalStart, 4), test_loss, acc*100., acc_5*100.))
 
         gc.collect()
 
@@ -356,7 +356,11 @@ class Executor(object):
 
                 elif current_event == events.MODEL_TEST:
                     logging.info(f"executor[{self.executor_id}] receives TEST request")
-                    self.Test(self.deserialize_response(request.meta))
+                    meta = self.deserialize_response(request.meta)
+                    job_name = str(meta['job_name'])
+                    executor_id = str(meta['executor_id'])
+                    assert executor_id == self.executor_id, f'executor[{self.executor_id} receives TEST request for executor[{executor_id}]]'
+                    self.Test(job_name)
 
                 elif current_event == events.UPDATE_MODEL:
                     logging.info(f"executor[{self.executor_id}] receives UPDATE request")
