@@ -173,10 +173,15 @@ class clientManager(object):
     def isClientActive(self, clientId, cur_time):
         return self.Clients[self.getUniqueId(0, clientId)].isActive(cur_time)
 
-    def resampleClients(self, numOfClients, cur_time=0):
+    def resampleClients(self, numOfClients, cur_time=0, busy_clients=None):
         self.count += 1
 
         clients_online = self.getFeasibleClients(cur_time)
+        assert len(set(clients_online)) == len(clients_online), f'clients_online contain repeated client_id'
+
+        # only pick not busy clients
+        if busy_clients is not None:
+            clients_online = [x for x in clients_online if x not in busy_clients]
 
         if len(clients_online) <= numOfClients:
             return clients_online

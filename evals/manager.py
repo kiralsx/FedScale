@@ -13,7 +13,6 @@ def load_yaml_conf(yaml_file):
     return data
 
 def process_cmd(yaml_file,local = False):
-
     yaml_conf = load_yaml_conf(yaml_file)
 
     ps_ip = yaml_conf['ps_ip']
@@ -69,9 +68,11 @@ def process_cmd(yaml_file,local = False):
     ps_cmd = f" python {yaml_conf['exp_path']}/{yaml_conf['aggregator_entry']} \
               --yaml_file={yaml_file} --this_rank=0 --num_executors={total_gpu_processes} --executor_configs={executor_configs} --ps_ip={ps_ip} --time_stamp={time_stamp} "
     
+    print(ps_cmd)
 
     with open(f"{job_name}_logging", 'wb') as fout:
         pass
+
 
     print(f"Starting aggregator on {ps_ip}...")
     with open(f"{job_name}_logging", 'a') as fout:
@@ -82,7 +83,7 @@ def process_cmd(yaml_file,local = False):
             subprocess.Popen(f'ssh {submit_user}{ps_ip} "{setup_cmd} {ps_cmd}"',
                             shell=True, stdout=fout, stderr=fout)
 
-    # time.sleep(10)
+    time.sleep(10)
     print("after sleep")
     # =========== Submit job to each worker ============
     rank_id = 1
@@ -138,6 +139,7 @@ def terminate(job_name):
         # _ = os.system(f"ssh {job_meta['user']}{vm_ip} 'python {current_path}/shutdown.py {job_name}'")
 
 if sys.argv[1] == 'submit' or sys.argv[1] == 'start':
+    os.system("python shutdown.py all")
     process_cmd(sys.argv[2], False if sys.argv[1] =='submit' else True)
 elif sys.argv[1] == 'stop':
     terminate(sys.argv[2])

@@ -28,7 +28,8 @@ class Executor(object):
 
         # ======== model and data ========
         self.model = self.training_sets = self.test_dataset = None
-        self.temp_model_path = {job_name: os.path.join(logDir, 'model_'+job_name+str(self.this_rank)+'.pth.tar') for job_name in self.args_dict}
+        # self.temp_model_path = {job_name: os.path.join(logDir, 'model_'+job_name+'-'+str(self.this_rank)+'.pth.tar') for job_name in self.args_dict}
+        self.temp_model_path = {job_name: os.path.join(logDir, job_name + '_exe_' + str(self.this_rank) + '.pth.tar') for job_name in self.args_dict}
 
         # ======== channels ========
         self.aggregator_communicator = ClientConnections(self.demo_arg.ps_ip, self.demo_arg.ps_port)
@@ -36,7 +37,7 @@ class Executor(object):
         # ======== runtime information ========
         self.collate_fn = {job_name: None for job_name in self.args_dict} #TODO: check how to modify this
         self.task = {job_name: args.task for job_name, args in self.args_dict.items()}
-        self.round = 0
+        self.round = {job_name: 0 for job_name in self.args_dict}
         self.start_run_time = time.time()
         self.received_stop_request = False
         self.event_queue = collections.deque()
@@ -148,31 +149,31 @@ class Executor(object):
     def serialize_response(self, responses):
         return pickle.dumps(responses)
 
-    def UpdateModel(self, config):
+    def UpdateModel(self, job_name, model):
         """Receive the broadcasted global model for current round"""
-        self.update_model_handler(model=config)
+        self.update_model_handler(job_name=job_name, model=model)
 
     def Train(self, config):
         """Load train config and data to start training on client """
-        client_id, train_config = config['client_id'], config['task_config']
+        job_name, client_id, train_config = config['job_name'], config['client_id'], config['task_config']
 
         model = None
         if 'model' in train_config and train_config['model'] is not None:
             model = train_config['model']
 
-        client_conf = self.override_conf(train_config)
-        train_res = self.training_handler(clientId=client_id, conf=client_conf, model=model)
+        client_conf = self.override_conf(job_name, train_config)
+        train_res = self.training_handler(job_name=job_name, clientId=client_id, conf=client_conf, model=model)
 
         # Report execution completion meta information
         response = self.aggregator_communicator.stub.CLIENT_EXECUTE_COMPLETION(
             job_api_pb2.CompleteRequest(
                 client_id = str(client_id), executor_id = self.executor_id,
                 event = events.CLIENT_TRAIN, status = True, msg = None,
-                meta_result = None, data_result = None
+                meta_result = job_name, data_result = None
             )
         )
-        self.dispatch_worker_events(response)
 
+        self.dispatch_worker_events(response)
         return client_id, train_res
 
     def Test(self, config):
@@ -205,25 +206,26 @@ class Executor(object):
         # return self.training_sets.getSize()
 
 
-    def update_model_handler(self, model):
+    def update_model_handler(self, job_name, model):
         """Update the model copy on this executor"""
-        self.model = model
-        self.round += 1
+        self.model[job_name] = model
+        self.round[job_name] += 1
 
         # Dump latest model to disk
-        with open(self.temp_model_path, 'wb') as model_out:
-            pickle.dump(self.model, model_out)
+        # logging.info(f'dump model to {self.temp_model_path[job_name]}')
+        with open(self.temp_model_path[job_name], 'wb') as model_out:
+            pickle.dump(self.model[job_name], model_out)
 
 
-    def load_global_model(self):
+    def load_global_model(self, job_name):
         # load last global model
-        with open(self.temp_model_path, 'rb') as model_in:
+        with open(self.temp_model_path[job_name], 'rb') as model_in:
             model = pickle.load(model_in)
         return model
 
 
-    def override_conf(self, config):
-        default_conf = vars(self.args).copy()
+    def override_conf(self, job_name, config):
+        default_conf = vars(self.args_dict[job_name]).copy()
 
         for key in config:
             default_conf[key] = config[key]
@@ -239,22 +241,22 @@ class Executor(object):
         return Client(conf)
 
 
-    def training_handler(self, clientId, conf, model=None):
+    def training_handler(self, job_name, clientId, conf, model=None):
         """Train model given client ids"""
 
         # load last global model
-        client_model = self.load_global_model() if model is None else model
+        client_model = self.load_global_model(job_name) if model is None else model
 
         conf.clientId, conf.device = clientId, self.device
-        conf.tokenizer = tokenizer # TODO: change to corresponding tokenizer
-        if args.task == "rl":
-            client_data = self.training_sets
+        conf.tokenizer = tokenizer[job_name] # TODO: change to corresponding tokenizer
+        if self.args_dict[job_name].task == "rl":
+            client_data = self.training_sets[job_name]
             client = RLClient(conf)
             train_res = client.train(client_data=client_data, model=client_model, conf=conf)
         else:
-            client_data = select_dataset(clientId, self.training_sets, 
-                batch_size=conf.batch_size, args = self.args, 
-                collate_fn=self.collate_fn
+            client_data = select_dataset(clientId, self.training_sets[job_name], 
+                batch_size=conf.batch_size, args = self.args_dict[job_name], 
+                collate_fn=self.collate_fn[job_name]
             )
 
             client = self.get_client_trainer(conf)
@@ -290,8 +292,8 @@ class Executor(object):
                 raise Exception(f"Need customized implementation for model testing in {self.args.engine} engine")
 
             test_loss, acc, acc_5, testResults = test_res
-            logging.info(f"(EXECUTOR:{self.this_rank}): After aggregation round {}, CumulTime {}, eval_time {}, test_loss {}, test_accuracy {:.2f}%, test_5_accuracy {:.2f}% \n"
-                .format(self.round, round(time.time() - self.start_run_time, 4), round(time.time() - evalStart, 4), test_loss, acc*100., acc_5*100.))
+            logging.info("(EXECUTOR:{}): After aggregation round {}, CumulTime {}, eval_time {}, test_loss {}, test_accuracy {:.2f}%, test_5_accuracy {:.2f}% \n"
+                .format(self.executor_id, self.round, round(time.time() - self.start_run_time, 4), round(time.time() - evalStart, 4), test_loss, acc*100., acc_5*100.))
 
         gc.collect()
 
@@ -325,9 +327,8 @@ class Executor(object):
 
     def event_monitor(self):
         """Activate event handler once receiving new message"""
-        logging.info("(EXECUTOR:{self.this_rank}): Start monitoring events ...")
+        logging.info(f"(EXECUTOR:{self.this_rank}): Start monitoring events ...")
         self.client_register()
-        exit()
 
         while self.received_stop_request == False:
             if len(self.event_queue) > 0:
@@ -335,27 +336,37 @@ class Executor(object):
                 current_event = request.event
 
                 if current_event == events.CLIENT_TRAIN:
+                    logging.info(f"executor[{self.executor_id}] receives TRAIN request")
                     train_config = self.deserialize_response(request.meta)
                     train_model = self.deserialize_response(request.data)
                     train_config['model'] = train_model
                     train_config['client_id'] = int(train_config['client_id'])
+                    train_config['job_name'] = str(train_config['job_name'])
                     client_id, train_res = self.Train(train_config)
 
                     # Upload model updates
-                    _ = self.aggregator_communicator.stub.CLIENT_EXECUTE_COMPLETION.future(
+                    # response = self.aggregator_communicator.stub.CLIENT_EXECUTE_COMPLETION.future(
+                    response = self.aggregator_communicator.stub.CLIENT_EXECUTE_COMPLETION(
                         job_api_pb2.CompleteRequest(client_id = str(client_id), executor_id = self.executor_id,
                         event = events.UPLOAD_MODEL, status = True, msg = None,
-                        meta_result = None, data_result = self.serialize_response(train_res)
+                        meta_result = train_config['job_name'], data_result = self.serialize_response(train_res)
                     ))
 
+                    self.dispatch_worker_events(response)
+
                 elif current_event == events.MODEL_TEST:
+                    logging.info(f"executor[{self.executor_id}] receives TEST request")
                     self.Test(self.deserialize_response(request.meta))
 
                 elif current_event == events.UPDATE_MODEL:
-                    broadcast_config = self.deserialize_response(request.data)
-                    self.UpdateModel(broadcast_config)
+                    logging.info(f"executor[{self.executor_id}] receives UPDATE request")
+                    config = self.deserialize_response(request.meta)
+                    job_name = str(config['job_name'])
+                    model = self.deserialize_response(request.data)
+                    self.UpdateModel(job_name, model)
 
                 elif current_event == events.SHUT_DOWN:
+                    logging.info(f"executor[{self.executor_id}] receives SHUTDOWN request")
                     self.Stop()
 
                 elif current_event == events.DUMMY_EVENT:
