@@ -601,16 +601,16 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
         }
         return conf
 
-    def create_client_task(self, job_name):
+    def create_client_task(self, job_name_):
         """Issue a new client training task to the executor"""
-        task = self.resource_manager.get_next_task(job_name)
+        task, restore = self.resource_manager.get_next_task(job_name_)
         train_config = None
         model = None
         if task is not None:
             job_name, client_id = task
             config = self.get_client_conf(job_name)
             train_config = {'job_name': job_name, 'client_id': client_id, 'task_config': config}
-        return train_config, model
+        return train_config, model, restore
 
 
     def get_test_config(self, job_name, executor_id, ):
@@ -665,8 +665,10 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
         else:
             job_name, current_event = self.individual_client_events[executor_id].popleft()
             if current_event == events.CLIENT_TRAIN:
-                response_msg, response_data = self.create_client_task(job_name)
+                response_msg, response_data, restore = self.create_client_task(job_name)
                 if response_msg is not None:
+                    if restore:
+                        self.individual_client_events[executor_id].append((job_name, events.CLIENT_TRAIN))
                     job_name = response_msg['job_name']
                     job_client_id = response_msg['client_id']
                 else:
@@ -716,7 +718,8 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
             if self.resource_manager.has_next_task(executor_id):
                 # NOTE: we do not pop the train immediately in simulation mode,
                 # since the executor may run multiple clients
-                self.individual_client_events[executor_id].appendleft((job_name, events.CLIENT_TRAIN))
+                if self.resource_manager.get_first()[0] == job_name:
+                    self.individual_client_events[executor_id].appendleft((job_name, events.CLIENT_TRAIN))
 
         elif event in (events.MODEL_TEST, events.UPLOAD_MODEL):
             # meta represents job_name

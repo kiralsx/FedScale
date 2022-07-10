@@ -41,20 +41,20 @@ class ResourceManager(object):
     
     def get_next_task(self, job_name, client_id=None):
         next_task = None
+        restore = False
         self.update_lock.acquire()
         if self.experiment_mode == events.SIMULATION_MODE:
             if len(self.queue) > 0:
                 next_task = self.queue.popleft()
                 if next_task[0] != job_name:
-                    self.queue.appendleft(next_task)
-                    assert job_name not in [job_name for (job_name, _) in self.queue], f'unsequential {job_name} in queue'
-                    next_task = None
+                    restore = True
+                    assert len([jn for jn, _ in self.queue if jn == job_name]) > 0, f'{job_name} not in the queue {self.queue}'
         else:
             if (job_name, client_id) in self.queue:
                 next_task = (job_name, client_id)
                 self.queue.remove((job_name, client_id))
         self.update_lock.release()
-        return next_task
+        return next_task, restore
 
         
 
