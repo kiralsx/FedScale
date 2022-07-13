@@ -30,7 +30,7 @@ def process_cmd(yaml_file,local = False):
 
     time_stamp = datetime.datetime.fromtimestamp(time.time()).strftime('%m%d_%H%M%S')
     running_vms = set()
-    job_name = 'fedscale_job'
+    job_name = 'recent'
     log_path = './logs'
     submit_user = f"{yaml_conf['auth']['ssh_user']}@" if len(yaml_conf['auth']['ssh_user']) else ""
 

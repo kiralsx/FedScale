@@ -94,7 +94,7 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
                                     'gradient_policy': args.gradient_policy, 'task': args.task, 'perf': collections.OrderedDict()} 
                                 for job_name, args in self.args_dict.items()} 
 
-        # self.log_writer = SummaryWriter(log_dir=logDir)
+        self.log_writer = SummaryWriter(log_dir=logDir)
 
 
         self.virtual_client_clock = {job_name: {} for job_name in self.args_dict}
@@ -456,8 +456,8 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
                 f"{len(self.sampled_participants[job_name])}, Succeed participants: {len(self.stats_util_accumulator[job_name])}, Training loss: {avg_loss}")
             
             # dump round completion information to tensorboard
-            # if len(self.loss_accumulator[job_name]):
-            #     self.log_train_result(avg_loss)
+            if len(self.loss_accumulator[job_name]):
+                self.log_train_result(job_name, avg_loss)
 
             # update select participants
             self.sampled_participants[job_name] = self.select_participants(
@@ -484,7 +484,7 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
             self.save_last_param(job_name)
             self.round_stragglers[job_name] = round_stragglers
             self.virtual_client_clock[job_name] = virtual_client_clock # exe_cost (compute_Cost, communication_cost)
-            # self.flatten_client_duration[job_name] = numpy.array(flatten_client_duration) # the round time of each client compute + communicatoin
+            self.flatten_client_duration[job_name] = numpy.array(flatten_client_duration) # the round time of each client compute + communicatoin
             self.round_duration[job_name] = round_duration
             
             self.model_in_update[job_name] = 0
@@ -505,20 +505,20 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
 
 
 
-    # def log_train_result(self, avg_loss):
-    #     """Result will be post on TensorBoard"""
-    #     self.log_writer.add_scalar('Train/round_to_loss', avg_loss, self.round)
-    #     self.log_writer.add_scalar('FAR/time_to_train_loss (min)', avg_loss, self.global_virtual_clock/60.)
-    #     self.log_writer.add_scalar('FAR/round_duration (min)', self.round_duration/60., self.round)
-    #     self.log_writer.add_histogram('FAR/client_duration (min)', self.flatten_client_duration, self.round)
+    def log_train_result(self, job_name, avg_loss):
+        """Result will be post on TensorBoard"""
+        self.log_writer.add_scalar(f'{job_name}/Train/round_to_loss', avg_loss, self.round[job_name])
+        self.log_writer.add_scalar(f'{job_name}/FAR/time_to_train_loss (min)', avg_loss, self.global_virtual_clock/60.)
+        self.log_writer.add_scalar(f'{job_name}/FAR/round_duration (min)', self.round_duration[job_name]/60., self.round)
+        self.log_writer.add_histogram(f'{job_name}/FAR/client_duration (min)', self.flatten_client_duration[job_name], self.round)
 
-    # def log_test_result(self):
-    #     self.log_writer.add_scalar('Test/round_to_loss', self.testing_history['perf'][self.round]['loss'], self.round)
-    #     self.log_writer.add_scalar('Test/round_to_accuracy', self.testing_history['perf'][self.round]['top_1'], self.round)
-    #     self.log_writer.add_scalar('FAR/time_to_test_loss (min)', self.testing_history['perf'][self.round]['loss'],
-    #                                 self.global_virtual_clock/60.)
-    #     self.log_writer.add_scalar('FAR/time_to_test_accuracy (min)', self.testing_history['perf'][self.round]['top_1'],
-    #                                 self.global_virtual_clock/60.)
+    def log_test_result(self, job_name):
+        self.log_writer.add_scalar(f'{job_name}/Test/round_to_loss', self.testing_history[job_name]['perf'][self.round[job_name]]['loss'], self.round[job_name])
+        self.log_writer.add_scalar(f'{job_name}/Test/round_to_accuracy', self.testing_history[job_name]['perf'][self.round[job_name]]['top_1'], self.round[job_name])
+        self.log_writer.add_scalar(f'{job_name}/FAR/time_to_test_loss (min)', self.testing_history[job_name]['perf'][self.round[job_name]]['loss'],
+                                    self.global_virtual_clock/60.)
+        self.log_writer.add_scalar(f'{job_name}/FAR/time_to_test_accuracy (min)', self.testing_history[job_name]['perf'][self.round[job_name]]['top_1'],
+                                    self.global_virtual_clock/60.)
 
 
     def deserialize_response(self, responses):
@@ -574,8 +574,8 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
             with open(os.path.join(logDir, f'{job_name}_testing_perf'), 'wb') as fout:
                 pickle.dump(self.testing_history[job_name], fout)
 
-            # if len(self.loss_accumulator):
-            #     self.log_test_result()
+            if len(self.loss_accumulator[job_name]):
+                self.log_test_result(job_name)
 
             self.broadcast_events_queue.append((job_name, events.START_ROUND))
 
