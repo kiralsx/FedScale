@@ -509,8 +509,8 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
         """Result will be post on TensorBoard"""
         self.log_writer.add_scalar(f'{job_name}/Train/round_to_loss', avg_loss, self.round[job_name])
         self.log_writer.add_scalar(f'{job_name}/FAR/time_to_train_loss (min)', avg_loss, self.global_virtual_clock/60.)
-        self.log_writer.add_scalar(f'{job_name}/FAR/round_duration (min)', self.round_duration[job_name]/60., self.round)
-        self.log_writer.add_histogram(f'{job_name}/FAR/client_duration (min)', self.flatten_client_duration[job_name], self.round)
+        self.log_writer.add_scalar(f'{job_name}/FAR/round_duration (min)', self.round_duration[job_name]/60., self.round[job_name])
+        self.log_writer.add_histogram(f'{job_name}/FAR/client_duration (min)', self.flatten_client_duration[job_name], self.round[job_name])
 
     def log_test_result(self, job_name):
         self.log_writer.add_scalar(f'{job_name}/Test/round_to_loss', self.testing_history[job_name]['perf'][self.round[job_name]]['loss'], self.round[job_name])
