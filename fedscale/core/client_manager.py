@@ -173,7 +173,7 @@ class clientManager(object):
     def isClientActive(self, clientId, cur_time):
         return self.Clients[self.getUniqueId(0, clientId)].isActive(cur_time)
 
-    def resampleClients(self, numOfClients, cur_time=0, busy_clients=None):
+    def resampleClients(self, numOfClients, cur_time=0., busy_clients=None):
         self.count += 1
 
         clients_online = self.getFeasibleClients(cur_time)
@@ -181,7 +181,29 @@ class clientManager(object):
 
         # only pick not busy clients
         if busy_clients is not None:
-            clients_online = [x for x in clients_online if x not in busy_clients]
+            # check the correctness of busy clients
+            for client_id, slots in busy_clients.items():
+                for i in range(len(slots)-1):
+                    for j in range(i+1, len(slots)):
+                        assert slots[i][0] > slots[j][1] or slots[i][1] < slots[j][0], f'client {client_id} slots overlap {slots[i]} {slots[j]}'
+
+            clients_available = []
+            for x in clients_online:
+                if x not in busy_clients:
+                    clients_available.append(x)
+                else:
+                    aval = True
+                    for slots in busy_clients[x]:
+                        if cur_time >= slots[0] and cur_time <= slots[1]:
+                            aval = False
+                            break
+                    if aval:
+                        clients_available.append(x)
+            clients_online = clients_available
+
+
+        # if busy_clients is not None:
+        #     clients_online = [x for x in clients_online if x not in busy_clients]
 
         if len(clients_online) <= numOfClients:
             return clients_online

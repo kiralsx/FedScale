@@ -48,7 +48,7 @@ class ResourceManager(object):
                 next_task = self.queue.popleft()
                 if next_task[0] != job_name:
                     restore = True
-                    assert len([jn for jn, _ in self.queue if jn == job_name]) > 0, f'{job_name} not in the queue {self.queue}'
+                    # assert len([jn for jn, _ in self.queue if jn == job_name]) > 0, f'{job_name} not in the queue {self.queue}'
         else:
             if (job_name, client_id) in self.queue:
                 next_task = (job_name, client_id)

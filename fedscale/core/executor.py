@@ -164,16 +164,16 @@ class Executor(object):
         client_conf = self.override_conf(job_name, train_config)
         train_res = self.training_handler(job_name=job_name, clientId=client_id, conf=client_conf, model=model)
 
-        # Report execution completion meta information
-        response = self.aggregator_communicator.stub.CLIENT_EXECUTE_COMPLETION(
-            job_api_pb2.CompleteRequest(
-                client_id = str(client_id), executor_id = self.executor_id,
-                event = events.CLIENT_TRAIN, status = True, msg = None,
-                meta_result = job_name, data_result = None
-            )
-        )
+        # # Report execution completion meta information
+        # response = self.aggregator_communicator.stub.CLIENT_EXECUTE_COMPLETION(
+        #     job_api_pb2.CompleteRequest(
+        #         client_id = str(client_id), executor_id = self.executor_id,
+        #         event = events.CLIENT_TRAIN, status = True, msg = None,
+        #         meta_result = job_name, data_result = None
+        #     )
+        # )
 
-        self.dispatch_worker_events(response)
+        # self.dispatch_worker_events(response)
         return client_id, train_res
 
     def Test(self, job_name):
