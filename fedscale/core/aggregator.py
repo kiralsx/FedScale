@@ -224,9 +224,11 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
     def client_register_handler(self, executorId, info_dict):
         """Triggered once receive new executor registration"""
         assert sorted(list(self.args_dict.keys())) == sorted(list(info_dict.keys()))
+        num_clients = 15
         for job_name, info in info_dict.items():
-            logging.info(f"Loading executor[{executorId}] for jobname {job_name} {len(info['size'])} client traces ...")
-            for _size in info['size']:
+            # logging.info(f"Loading executor[{executorId}] for jobname {job_name} {len(info['size'])} client traces ...")
+            logging.info(f"Loading executor[{executorId}] for jobname {job_name} {num_clients} client traces ...")
+            for _size in info['size'][:num_clients]:
                 # since the worker rankId starts from 1, we also configure the initial dataId as 1
                 mapped_id = (self.num_of_clients[job_name]+1)%len(self.client_profiles) if len(self.client_profiles) > 0 else 1
                 systemProfile = self.client_profiles.get(mapped_id, {'computation': 1.0, 'communication':1.0})
@@ -252,14 +254,12 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
             if len(self.registered_executor_info) == len(self.executors):
                 self.client_register_handler(executorId, info)
                 # start to sample clients
-                for job_name in self.args_dict:
-                    self.round_completion_handler(job_name)
+                self.round_completion_handler()
         else:
             # In real deployments, we need to register for ealsch client
             self.client_register_handler(executorId, info)
             if len(self.registered_executor_info) == len(self.executors):
-                for job_name in self.args_dict:
-                    self.round_completion_handler(job_name)
+                self.round_completion_handler()
 
 
     def tictak_client_tasks(self, job_name, sampled_clients, num_clients_to_collect):
@@ -436,91 +436,99 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
                 self.optimizer[job_name].update_round_gradient(self.last_gradient_weights[job_name], current_grad_weights, self.model[job_name])
 
 
-    def round_completion_handler(self, job_name):
-        self.global_virtual_clock[job_name] += self.round_duration[job_name]
-        assert len({jn for jn, _ in self.resource_manager.get_queue() if jn == job_name}) == 0, f'job {job_name} has pending tasks in resource manager'
-        self.round[job_name] += 1
-        if self.round[job_name] % args_dict[job_name].decay_round == 0:
-            self.args_dict[job_name].learning_rate = max(self.args_dict[job_name].learning_rate*self.args_dict[job_name].decay_factor, self.args_dict[job_name].min_learning_rate)
-
-        # handle the global update w/ current and last
-        self.round_weight_handler(job_name)
-
-        avgUtilLastround = sum(self.stats_util_accumulator[job_name])/max(1, len(self.stats_util_accumulator[job_name]))
-        # assign avg reward to explored, but not finished workers
-        for clientId in self.round_stragglers[job_name]:
-            self.client_manager[job_name].registerScore(clientId, avgUtilLastround,
-                        time_stamp=self.round[job_name],
-                        duration=self.client_cost[job_name][clientId]['computation']+self.client_cost[job_name][clientId]['communication'],
-                        success=False)
+    def round_completion_handler(self):
+        for job_name in self.args_dict:
+            self.global_virtual_clock[job_name] += self.round_duration[job_name]
         
-        avg_loss = sum(self.loss_accumulator[job_name])/max(1, len(self.loss_accumulator[job_name]))
+        self.global_virtual_clock = sorted(self.global_virtual_clock.items(), key = lambda x: x[1])
+        logging.info(f'virtual clock: {self.global_virtual_clock}')
 
-        logging.info(f"[{job_name}]: Wall clock: {round(self.global_virtual_clock[job_name])} s, round: {self.round[job_name]}, Planned participants: " + \
-                     f"{len(self.sampled_participants[job_name])}, Succeed participants: {len(self.stats_util_accumulator[job_name])}, Training loss: {avg_loss}")
+        for job_name in self.args_dict:
+            logging.info(f'###################### round completion handler for {job_name} #######################')
+            assert len({jn for jn, _ in self.resource_manager.get_queue() if jn == job_name}) == 0, f'job {job_name} has pending tasks in resource manager'
+            self.round[job_name] += 1
+            if self.round[job_name] % args_dict[job_name].decay_round == 0:
+                self.args_dict[job_name].learning_rate = max(self.args_dict[job_name].learning_rate*self.args_dict[job_name].decay_factor, self.args_dict[job_name].min_learning_rate)
 
-        # dump round completion information to tensorboard
-        if len(self.loss_accumulator[job_name]):
-            self.log_train_result(job_name, avg_loss)
+            # handle the global update w/ current and last
+            self.round_weight_handler(job_name)
 
-        # update select participants
-        self.client_lock.acquire()
-        self.sampled_participants[job_name] = self.select_participants(
-                        job_name = job_name,
-                        select_num_participants=self.args_dict[job_name].total_worker,
-                        overcommitment=self.args_dict[job_name].overcommitment)
+            avgUtilLastround = sum(self.stats_util_accumulator[job_name])/max(1, len(self.stats_util_accumulator[job_name]))
+            # assign avg reward to explored, but not finished workers
+            for clientId in self.round_stragglers[job_name]:
+                self.client_manager[job_name].registerScore(clientId, avgUtilLastround,
+                            time_stamp=self.round[job_name],
+                            duration=self.client_cost[job_name][clientId]['computation']+self.client_cost[job_name][clientId]['communication'],
+                            success=False)
+            
+            avg_loss = sum(self.loss_accumulator[job_name])/max(1, len(self.loss_accumulator[job_name]))
 
-        (clientsToRun, round_stragglers, client_cost, round_duration, flatten_client_duration, client_duration_dict) \
-            = self.tictak_client_tasks(job_name, self.sampled_participants[job_name], self.args_dict[job_name].total_worker)
+            logging.info(f"[{job_name}]: Wall clock: {round(self.global_virtual_clock[job_name])} s, round: {self.round[job_name]}, Planned participants: " + \
+                        f"{len(self.sampled_participants[job_name])}, Succeed participants: {len(self.stats_util_accumulator[job_name])}, Training loss: {avg_loss}")
 
-        for client_id in client_duration_dict:
-            slot_start = self.global_virtual_clock[job_name]
-            slot_end = slot_start + client_duration_dict[client_id]
-            if client_id not in self.busy_clients:
-                self.busy_clients[client_id] = [(slot_start, slot_end)]
+            # dump round completion information to tensorboard
+            if len(self.loss_accumulator[job_name]):
+                self.log_train_result(job_name, avg_loss)
+
+            # update select participants
+            self.client_lock.acquire()
+            self.sampled_participants[job_name] = self.select_participants(
+                            job_name = job_name,
+                            select_num_participants=self.args_dict[job_name].total_worker,
+                            overcommitment=self.args_dict[job_name].overcommitment)
+
+            (clientsToRun, round_stragglers, client_cost, round_duration, flatten_client_duration, client_duration_dict) \
+                = self.tictak_client_tasks(job_name, self.sampled_participants[job_name], self.args_dict[job_name].total_worker)
+
+            for client_id in client_duration_dict:
+                slot_start = self.global_virtual_clock[job_name]
+                slot_end = slot_start + client_duration_dict[client_id]
+                if client_id not in self.busy_clients:
+                    self.busy_clients[client_id] = [(slot_start, slot_end)]
+                else:
+                    self.busy_clients[client_id].append((slot_start, slot_end))
+            
+            self.client_lock.release()
+
+            logging.info(f"[{job_name}]: Selected participants to run: {clientsToRun}, finishes round at {self.global_virtual_clock[job_name]+round_duration} (duration: {round_duration})")
+
+            # Issue requests to the resource manager; Tasks ordered by the completion time
+            self.resource_manager.register_tasks(job_name, clientsToRun)
+            self.tasks_round[job_name] = len(clientsToRun)
+
+            # Update executors and participants
+            if self.experiment_mode == events.SIMULATION_MODE:
+                self.sampled_executors = list(self.individual_client_events.keys())
             else:
-                self.busy_clients[client_id].append((slot_start, slot_end))
-        
-        self.client_lock.release()
+                self.sampled_executors = [str(c_id) for c_id in self.sampled_participants]
 
-        logging.info(f"[{job_name}]: Selected participants to run: {clientsToRun}, finishes round at {self.global_virtual_clock[job_name]+round_duration} (duration: {round_duration})")
+            self.save_last_param(job_name)
 
-        # Issue requests to the resource manager; Tasks ordered by the completion time
-        self.resource_manager.register_tasks(job_name, clientsToRun)
-        self.tasks_round[job_name] = len(clientsToRun)
+            self.round_stragglers[job_name] = round_stragglers
+            self.client_cost[job_name] = client_cost # exe_cost (compute_Cost, communication_cost)
+            self.flatten_client_duration[job_name] = numpy.array(flatten_client_duration) # the round time of each client compute + communicatoin
+            self.round_duration[job_name] = round_duration
+            
+            self.model_in_update[job_name] = 0
+            self.test_result_accumulator[job_name] = []
+            self.stats_util_accumulator[job_name] = []
+            self.client_training_results[job_name] = []
 
-        # Update executors and participants
-        if self.experiment_mode == events.SIMULATION_MODE:
-            self.sampled_executors = list(self.individual_client_events.keys())
-        else:
-            self.sampled_executors = [str(c_id) for c_id in self.sampled_participants]
+            if self.round[job_name] >= self.args_dict[job_name].rounds:
+                terminate = True
+                for job_name in self.args_dict:
+                    if self.round[job_name] < self.args_dict[job_name].rounds:
+                        terminate = False
+                if terminate:
+                    self.broadcast_aggregator_events(job_name, events.SHUT_DOWN)
+            elif self.round[job_name] % self.args_dict[job_name].eval_interval == 0:
+                self.broadcast_aggregator_events(job_name, events.UPDATE_MODEL)
+                self.broadcast_aggregator_events(job_name, events.MODEL_TEST)
+            else:
+                self.broadcast_aggregator_events(job_name, events.UPDATE_MODEL)
+                self.broadcast_aggregator_events(job_name, events.START_ROUND)
 
-        self.save_last_param(job_name)
-
-        self.round_stragglers[job_name] = round_stragglers
-        self.client_cost[job_name] = client_cost # exe_cost (compute_Cost, communication_cost)
-        self.flatten_client_duration[job_name] = numpy.array(flatten_client_duration) # the round time of each client compute + communicatoin
-        self.round_duration[job_name] = round_duration
-        
-        self.model_in_update[job_name] = 0
-        self.test_result_accumulator[job_name] = []
-        self.stats_util_accumulator[job_name] = []
-        self.client_training_results[job_name] = []
-
-        if self.round[job_name] >= self.args_dict[job_name].rounds:
-            terminate = True
-            for job_name in self.args_dict:
-                if self.round[job_name] < self.args_dict[job_name].rounds:
-                    terminate = False
-            if terminate:
-                self.broadcast_aggregator_events(job_name, events.SHUT_DOWN)
-        elif self.round[job_name] % self.args_dict[job_name].eval_interval == 0:
-            self.broadcast_aggregator_events(job_name, events.UPDATE_MODEL)
-            self.broadcast_aggregator_events(job_name, events.MODEL_TEST)
-        else:
-            self.broadcast_aggregator_events(job_name, events.UPDATE_MODEL)
-            self.broadcast_aggregator_events(job_name, events.START_ROUND)
-
+            logging.info('')
         # logging.info(f'after round completion handler: {self.broadcast_events_queue}')
 
 
@@ -766,6 +774,11 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
         while True:
             # Broadcast events to clients
             if self.shutdown and self.stop_exectuors == len(self.individual_client_events):
+                # print busy worker
+                self.client_lock.acquire()
+                for client_id, slots in self.busy_clients.items():
+                    logging.info(f'client: {client_id} slots: {slots}')
+                self.client_lock.release()
                 break 
             elif len(self.broadcast_events_queue) > 0:
                 job_name, current_event = self.broadcast_events_queue.popleft()
@@ -791,8 +804,13 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
                     assert job_name in self.args_dict, f'{job_name}'
                     self.client_completion_handler(job_name, self.deserialize_response(data))
 
-                    if len(self.stats_util_accumulator[job_name]) == self.tasks_round[job_name]:
-                        self.round_completion_handler(job_name)
+                    round_completed = True
+                    for job_name in self.args_dict:
+                        if len(self.stats_util_accumulator[job_name]) != self.tasks_round[job_name]:
+                            round_completed = False
+                            break
+                    if round_completed:
+                        self.round_completion_handler()
 
                 elif current_event == events.MODEL_TEST:
                     job_name = meta

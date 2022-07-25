@@ -26,7 +26,7 @@ class ResourceManager(object):
     def register_tasks(self, job_name, clientsToRun):
         self.update_lock.acquire()
         for client_id in clientsToRun:
-            assert len([x for x in self.queue if x[1]==client_id]) == 0, f'resource_manager: {client_id} has already been assigned a task {[x for x in self.queue if x[1]==client_id]}'
+            # assert len([x for x in self.queue if x[1]==client_id]) == 0, f'resource_manager: {client_id} has already been assigned a task {[x for x in self.queue if x[1]==client_id]}'
             self.queue.append((job_name, client_id))
         self.update_lock.release()
 
