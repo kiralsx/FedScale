@@ -182,10 +182,10 @@ class clientManager(object):
         # only pick not busy clients
         if busy_clients is not None:
             # check the correctness of busy clients
-            for client_id, slots in busy_clients.items():
-                for i in range(len(slots)-1):
-                    for j in range(i+1, len(slots)):
-                        assert slots[i][0] > slots[j][1] or slots[i][1] < slots[j][0], f'client {client_id} slots overlap {slots[i]} {slots[j]}'
+            # for client_id, slots in busy_clients.items():
+            #     for i in range(len(slots)-1):
+            #         for j in range(i+1, len(slots)):
+            #             assert slots[i][0] > slots[j][1] or slots[i][1] < slots[j][0], f'client {client_id} slots overlap {slots[i]} {slots[j]}'
 
             clients_available = []
             for x in clients_online:

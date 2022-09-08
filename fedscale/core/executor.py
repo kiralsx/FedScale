@@ -92,7 +92,8 @@ class Executor(object):
                 return train_dataset, test_dataset
             # load data partitioner (entire_train_data)
             logging.info(f"(EXECUTOR:{self.this_rank}): Data partitioner starts on {job_name}...")
-
+            
+            # TODO: should not use args.total_worker when data_map_file is None
             training_sets[job_name] = DataPartitioner(data=train_dataset, args=args, numOfClass=args.num_class)
             training_sets[job_name].partition_data_helper(num_clients=args.total_worker, data_map_file=args.data_map_file)
 

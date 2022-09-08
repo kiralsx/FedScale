@@ -29,7 +29,7 @@ class Customized_Aggregator(Aggregator):
         self.update_lock.acquire()
         self.model_in_update += 1
         
-        if self.model_in_update == self.tasks_round:
+        if self.model_in_update == self.num_clients_to_run:
             self.combine_models()
 
         self.update_lock.release()
