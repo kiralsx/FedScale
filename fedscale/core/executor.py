@@ -337,7 +337,7 @@ class Executor(object):
                 current_event = request.event
 
                 if current_event == events.CLIENT_TRAIN:
-                    logging.info(f"executor[{self.executor_id}] receives TRAIN request")
+                    # logging.info(f"executor[{self.executor_id}] receives TRAIN request")
                     train_config = self.deserialize_response(request.meta)
                     train_model = self.deserialize_response(request.data)
                     train_config['model'] = train_model
@@ -356,7 +356,7 @@ class Executor(object):
                     self.dispatch_worker_events(response)
 
                 elif current_event == events.MODEL_TEST:
-                    logging.info(f"executor[{self.executor_id}] receives TEST request")
+                    # logging.info(f"executor[{self.executor_id}] receives TEST request")
                     meta = self.deserialize_response(request.meta)
                     job_name = str(meta['job_name'])
                     executor_id = str(meta['executor_id'])
@@ -364,7 +364,7 @@ class Executor(object):
                     self.Test(job_name)
 
                 elif current_event == events.UPDATE_MODEL:
-                    logging.info(f"executor[{self.executor_id}] receives UPDATE request")
+                    # logging.info(f"executor[{self.executor_id}] receives UPDATE request")
                     config = self.deserialize_response(request.meta)
                     job_name = str(config['job_name'])
                     model = self.deserialize_response(request.data)

@@ -105,6 +105,9 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
         # ======== Task specific ============
         self.init_task_context()
 
+    def terminate_job(self, job_name):
+        del self.global_virtual_clock[job_name]
+        del self.args_dict[job_name]
 
 
     def setup_env(self):
@@ -433,6 +436,24 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
 
         assert len({jn for jn, _ in self.resource_manager.get_queue() if jn == job_name}) == 0, f'job {job_name} has pending tasks in resource manager'
         self.round[job_name] += 1
+        self.global_virtual_clock[job_name] += self.round_duration[job_name]
+
+        if self.round[job_name] > self.args_dict[job_name].rounds:
+            logging.info(f'############ completion handler for {job_name} ############, \
+                       Wall Clock: {round(self.global_virtual_clock[job_name])}s, Round: {self.round[job_name]}, is finished')
+            terminate = True
+            for jn in self.args_dict:
+                if self.round[jn] < self.args_dict[jn].rounds:
+                    terminate = False
+                    break
+            if terminate:
+                self.broadcast_aggregator_events(job_name, events.SHUT_DOWN)
+                logging.info(f'in {job_name} round completion handler: terminate')
+            else:
+                logging.info(f'in {job_name} round completion handler: do not terminate')
+            self.terminate_job(job_name)
+            return
+
         if self.round[job_name] % args_dict[job_name].decay_round == 0:
             self.args_dict[job_name].learning_rate = max(self.args_dict[job_name].learning_rate*self.args_dict[job_name].decay_factor, self.args_dict[job_name].min_learning_rate)
 
@@ -472,14 +493,12 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
         
         self.client_lock.release()
 
-        logging.info(f'###### completion handler for {job_name} ######, \
-                       Wall Clock: {round(self.global_virtual_clock[job_name])}s, \
-                       Round: {self.round[job_name]}, \
-                       Last Clients num: {len(self.sampled_participants[job_name])} / {len(self.stats_util_accumulator[job_name])}, \
-                       Training loss: {avg_loss}, \
-                       Next Clients: {clientsToRun}, \
-                       Next Round Duration: {round(round_duration)} ({round(self.global_virtual_clock[job_name] + round_duration)}), \
-                    ')
+        logging.info(f'############ completion handler for {job_name} ############, ' +\
+                     f'Wall Clock: {round(self.global_virtual_clock[job_name])}s, '+\
+                     f'Round: {self.round[job_name]}, '+\
+                     f'Last Clients num: {len(self.sampled_participants[job_name])} / {len(self.stats_util_accumulator[job_name])}, '+\
+                     f'Training loss: {avg_loss}, Next Clients: {clientsToRun}, ' +\
+                     f'Next Round Duration: {round(round_duration)} ({round(self.global_virtual_clock[job_name] + round_duration)})')
 
         self.sampled_participants[job_name] = selected_clients_next_round
 
@@ -505,16 +524,10 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
         self.stats_util_accumulator[job_name] = []
         self.client_training_results[job_name] = []
 
-        if self.round[job_name] >= self.args_dict[job_name].rounds:
-            terminate = True
-            for job_name in self.args_dict:
-                if self.round[job_name] < self.args_dict[job_name].rounds:
-                    terminate = False
-            if terminate:
-                self.broadcast_aggregator_events(job_name, events.SHUT_DOWN)
-        elif self.round[job_name] % self.args_dict[job_name].eval_interval == 0:
+        if self.round[job_name] % self.args_dict[job_name].eval_interval == 0:
             self.broadcast_aggregator_events(job_name, events.UPDATE_MODEL)
             self.broadcast_aggregator_events(job_name, events.MODEL_TEST)
+            return
         else:
             self.broadcast_aggregator_events(job_name, events.UPDATE_MODEL)
             self.broadcast_aggregator_events(job_name, events.START_ROUND)
@@ -783,12 +796,23 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
                             round_completed = False
                             break
                     if round_completed:
-                        # set the clock time of each job to be the slowest in the last round
-                        for job_name in self.args_dict:
-                            self.global_virtual_clock[job_name] += np.max(list(self.round_duration.values()))
-                        for job_name in self.args_dict:
+                        """async"""
+                        schedule_next_job = True
+                        real_clock = {k: v+self.round_duration[k] for k, v in self.global_virtual_clock.items()}
+                        while schedule_next_job:
+                            logging.info(f'clock time: {real_clock}')
+                            job_name = min(real_clock, key=real_clock.get)
                             self.round_completion_handler(job_name)
-                        assert len(set(list(self.global_virtual_clock.values()))) == 1, f'jobs have different clock time at the end of each round: {self.global_virtual_clock}'
+                            del real_clock[job_name]
+                            schedule_next_job = len(self.args_dict) > 0 and job_name not in self.args_dict
+
+                        """ sync"""
+                        # # set the clock time of each job to be the slowest in the last round
+                        # for job_name in self.args_dict:
+                        #     self.global_virtual_clock[job_name] += np.max(list(self.round_duration.values()))
+                        # for job_name in self.args_dict:
+                        #     self.round_completion_handler(job_name)
+                        # assert len(set(list(self.global_virtual_clock.values()))) == 1, f'jobs have different clock time at the end of each round: {self.global_virtual_clock}'
 
                 elif current_event == events.MODEL_TEST:
                     job_name = meta

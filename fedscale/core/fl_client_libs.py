@@ -13,7 +13,8 @@ def init_logging():
         os.makedirs(logDir, exist_ok=True)
 
     logging.basicConfig(
-                    format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
+                    # format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
+                    format='[%(filename)s:%(lineno)d] %(message)s',
                     datefmt='(%m-%d) %H:%M:%S',
                     level=logging.INFO,
                     handlers=[
