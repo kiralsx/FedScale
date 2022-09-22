@@ -10,6 +10,14 @@ class Client(object):
         self.traces = traces
         self.behavior_index = 0
 
+        self.perf = {}
+
+    def register_perf(self, round, perf):
+        self.perf[round] = perf
+
+    def get_perf(self):
+        return self.perf
+
     def getScore(self):
         return self.score
 

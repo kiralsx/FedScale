@@ -28,3 +28,6 @@ data/
 .DS_Store
 *.egg-info
 *logging
+evals/multi_logs
+evals/recent
+*.png

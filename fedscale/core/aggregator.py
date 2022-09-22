@@ -223,7 +223,7 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
         """Triggered once receive new executor registration"""
         assert sorted(list(self.args_dict.keys())) == sorted(list(info_dict.keys()))
         # TODO: remove this
-        num_clients = 50
+        num_clients = 2
         for job_name, info in info_dict.items():
             # logging.info(f"Loading executor[{executorId}] for jobname {job_name} {len(info['size'])} client traces ...")
             logging.info(f"Loading executor[{executorId}] for jobname {job_name} {num_clients} client traces ...")
@@ -344,6 +344,13 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
             duration=self.client_cost[job_name][results['clientId']]['computation']+
                 self.client_cost[job_name][results['clientId']]['communication']
         )
+        
+        self.client_manager[job_name].registerPerf(
+                clientId =  results['clientId'],
+                round = self.round[job_name], 
+                stats_util = results['utility'], 
+                duration = self.client_cost[job_name][results['clientId']]['computation']+self.client_cost[job_name][results['clientId']]['communication'])
+
 
         # ================== Aggregate weights ======================
         self.update_lock[job_name].acquire()
@@ -432,6 +439,7 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
                 current_grad_weights = [param.data.clone() for param in self.model[job_name].parameters()]
                 self.optimizer[job_name].update_round_gradient(self.last_gradient_weights[job_name], current_grad_weights, self.model[job_name])
 
+
     def round_completion_handler(self, job_name):
 
         assert len({jn for jn, _ in self.resource_manager.get_queue() if jn == job_name}) == 0, f'job {job_name} has pending tasks in resource manager'
@@ -439,8 +447,8 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
         self.global_virtual_clock[job_name] += self.round_duration[job_name]
 
         if self.round[job_name] > self.args_dict[job_name].rounds:
-            logging.info(f'############ completion handler for {job_name} ############, \
-                       Wall Clock: {round(self.global_virtual_clock[job_name])}s, Round: {self.round[job_name]}, is finished')
+            logging.info(f'############ completion handler for {job_name} ############ ' + \
+                         f'Wall Clock: {round(self.global_virtual_clock[job_name])}s, Round: {self.round[job_name]}, is finished')
             terminate = True
             for jn in self.args_dict:
                 if self.round[jn] < self.args_dict[jn].rounds:
@@ -448,9 +456,9 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
                     break
             if terminate:
                 self.broadcast_aggregator_events(job_name, events.SHUT_DOWN)
-                logging.info(f'in {job_name} round completion handler: terminate')
-            else:
-                logging.info(f'in {job_name} round completion handler: do not terminate')
+            #     logging.info(f'in {job_name} round completion handler: terminate')
+            # else:
+            #     logging.info(f'in {job_name} round completion handler: do not terminate')
             self.terminate_job(job_name)
             return
 
@@ -479,6 +487,8 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
                         job_name = job_name,
                         select_num_participants=self.args_dict[job_name].total_worker,
                         overcommitment=self.args_dict[job_name].overcommitment)
+
+        logging.info(f'selected clients next round: {selected_clients_next_round}')
 
         (clientsToRun, round_stragglers, client_cost, round_duration, flatten_client_duration, client_duration_dict) \
             = self.tictak_client_tasks(job_name, selected_clients_next_round, self.args_dict[job_name].total_worker)
@@ -763,10 +773,19 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
             # Broadcast events to clients
             if self.shutdown and self.stop_exectuors == len(self.individual_client_events):
                 # print busy worker
+                logging.info('------ worker slots ------')
                 self.client_lock.acquire()
                 for client_id, slots in self.busy_clients.items():
                     logging.info(f'client: {client_id} slots: {slots}')
                 self.client_lock.release()
+
+                logging.info('------ client perf ------')
+                for job_name in self.client_manager:
+                    logging.info(f'Job: {job_name}')
+                    print(self.client_manager[job_name].getPerf())
+                    
+
+
                 break 
             elif len(self.broadcast_events_queue) > 0:
                 job_name, current_event = self.broadcast_events_queue.popleft()

@@ -97,6 +97,15 @@ class clientManager(object):
 
             self.ucbSampler.update_client_util(clientId, feedbacks=feedbacks)
 
+    def registerPerf(self, clientId, round, stats_util, duration):
+        self.Clients[self.getUniqueId(0, clientId)].register_perf(round=round, perf={'stats util': stats_util, 'duration': duration})
+
+    def getPerf(self):
+        res = {}
+        for client_id, client in self.Clients.items():
+            res[client_id] = client.get_perf()
+        return res
+
     def registerClientScore(self, clientId, reward):
         self.Clients[self.getUniqueId(0, clientId)].registerReward(reward)
 
@@ -185,7 +194,7 @@ class clientManager(object):
             for client_id, slots in busy_clients.items():
                 for i in range(len(slots)-1):
                     for j in range(i+1, len(slots)):
-                        assert slots[i][0] > slots[j][1] or slots[i][1] < slots[j][0], f'client {client_id} slots overlap {slots[i]} {slots[j]}'
+                        assert slots[i][0] >= slots[j][1] or slots[i][1] <= slots[j][0], f'client {client_id} slots overlap {slots[i]} {slots[j]}'
 
             clients_available = []
             for x in clients_online:
@@ -194,7 +203,7 @@ class clientManager(object):
                 else:
                     aval = True
                     for slots in busy_clients[x]:
-                        if cur_time >= slots[0] and cur_time <= slots[1]:
+                        if cur_time > slots[0] and cur_time < slots[1]:
                             aval = False
                             break
                     if aval:
