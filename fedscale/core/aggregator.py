@@ -14,6 +14,7 @@ import pickle
 import grpc
 from concurrent import futures
 from argparse import Namespace
+import json
 
 MAX_MESSAGE_LENGTH = 1*1024*1024*1024 # 1GB
 
@@ -223,7 +224,7 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
         """Triggered once receive new executor registration"""
         assert sorted(list(self.args_dict.keys())) == sorted(list(info_dict.keys()))
         # TODO: remove this
-        num_clients = 2
+        num_clients = 50
         for job_name, info in info_dict.items():
             # logging.info(f"Loading executor[{executorId}] for jobname {job_name} {len(info['size'])} client traces ...")
             logging.info(f"Loading executor[{executorId}] for jobname {job_name} {num_clients} client traces ...")
@@ -780,12 +781,15 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
                 self.client_lock.release()
 
                 logging.info('------ client perf ------')
+                client_perf_dict = json.load(open('/workspace/FedScale/evals/client_perf.txt'))
                 for job_name in self.client_manager:
                     logging.info(f'Job: {job_name}')
-                    print(self.client_manager[job_name].getPerf())
+                    client_perf_dict[job_name] = self.client_manager[job_name].getPerf()
+                    print(client_perf_dict[job_name])  
+
+                with open('/workspace/FedScale/evals/client_perf.txt', 'w') as file:
+                    file.write(json.dumps(client_perf_dict))
                     
-
-
                 break 
             elif len(self.broadcast_events_queue) > 0:
                 job_name, current_event = self.broadcast_events_queue.popleft()
