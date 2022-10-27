@@ -35,7 +35,7 @@ class MultiSampler(object):
         round_time = np.array([self.client_round_time[cid] for cid in available_clients])
         time_score = cp.max(cp.multiply(x,round_time))
 
-        obj_expr = 0.2 * time_score + 0.8 * freq_score
+        obj_expr = 0.2/60 * time_score + freq_score
         obj = cp.Minimize(obj_expr)
         constraints = [cp.sum(x) == num_clients_to_select]
         problem = cp.Problem(obj, constraints=constraints)
@@ -51,7 +51,7 @@ class MultiSampler(object):
         logging.info(f'{x}')
         selected_clients = [i for i in range(x.shape[0]) if x[i]==1]
         assert len(selected_clients) == num_clients_to_select
-        logging.info(f"obj: {problem.value}, time_score:{time_score.value}, freq_score: {freq_score.value}, selected_clients: {selected_clients}")
+        logging.info(f"obj: {problem.value}, time_score:{0.2/60 * time_score.value}, freq_score: {freq_score.value}, selected_clients: {selected_clients}")
         
         # update freq
         for cid in selected_clients:
