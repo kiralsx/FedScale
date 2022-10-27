@@ -1,1 +1,1 @@
-from multi_aaai import create_training_selector
+from .multi_aaai import MultiSampler

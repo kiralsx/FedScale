@@ -208,6 +208,7 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
         # sample_mode: random or oort
         client_manager = {}
         for job_name, args in self.args_dict.items():
+            logging.info(f'[{job_name}] client sample mode: {args.sample_mode}')
             client_manager[job_name] = clientManager(args.sample_mode, args=args)
 
         return client_manager

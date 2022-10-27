@@ -74,7 +74,7 @@ job_conf:
         - batch_size: 20
         - test_bsz: 20
         - malicious_factor: 4
-        - use_cuda: True
+        - use_cuda: False
         - overcommitment: 1.0
         - sample_mode: multi_aaai
     femnist-2:
@@ -99,6 +99,6 @@ job_conf:
         - batch_size: 20
         - test_bsz: 20
         - malicious_factor: 4
-        - use_cuda: True
+        - use_cuda: False
         - sample_mode: multi_aaai
     

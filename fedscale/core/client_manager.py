@@ -24,10 +24,11 @@ class clientManager(object):
             from thirdparty.oort.oort import create_training_selector
             #sys.path.append(current) 
             self.ucbSampler = create_training_selector(args=args)
-        elif self.model == 'multi_aaai':
-            from thirdparty.multi_aaai.multi_aaai import create_training_selector
-            self.multiSampler = cre
-        logging.info(f'!!!!!!!!{self.mode}')
+        elif self.mode == 'multi_aaai':
+            from thirdparty.multi_aaai.multi_aaai import MultiSampler
+            self.multiSampler = MultiSampler()
+
+
         self.feasibleClients = []
         self.rng = Random()
         self.rng.seed(sample_seed)
@@ -61,12 +62,11 @@ class clientManager(object):
                             'duration':duration,
                             }
                 self.ucbSampler.register_client(clientId, feedbacks=feedbacks)
+            elif self.mode == "multi_aaai":
+                self.multiSampler.register_client(clientId)
         else:
             del self.Clients[uniqueId]
 
-        # init the selection time of clients 
-        for clientid in self.feasibleClients:
-            self.client_selection_time[clientid] = 0
 
     def getAllClients(self):
         return self.feasibleClients
@@ -78,12 +78,17 @@ class clientManager(object):
         return self.Clients[self.getUniqueId(0, clientId)]
 
     def registerDuration(self, clientId, batch_size, upload_step, upload_size, download_size):
-        if self.mode == "oort" and self.getUniqueId(0, clientId) in self.Clients:
-            exe_cost = self.Clients[self.getUniqueId(0, clientId)].getCompletionTime(
-                    batch_size=batch_size, upload_step=upload_step,
-                    upload_size=upload_size, download_size=download_size
-            )
+        if self.getUniqueId(0, clientId) not in self.Clients or self.mode=='random':
+            return
+        exe_cost = self.Clients[self.getUniqueId(0, clientId)].getCompletionTime(
+                batch_size=batch_size, upload_step=upload_step,
+                upload_size=upload_size, download_size=download_size
+        )
+        if self.mode == "oort":
             self.ucbSampler.update_duration(clientId, exe_cost['computation']+exe_cost['communication'])
+        elif self.mode == "multi_aaai":
+            self.multiSampler.register_round_time(clientId, exe_cost['computation']+exe_cost['communication'])
+
 
     def getCompletionTime(self, clientId, batch_size, upload_step, upload_size, download_size):
         
@@ -228,19 +233,21 @@ class clientManager(object):
         if len(clients_online) <= numOfClients:
             return clients_online
 
-        pickled_clients = None
+        picked_clients = None
         clients_online_set = set(clients_online)
+        assert len(clients_online_set) == len(clients_online)
+
 
         if self.mode == "oort" and self.count > 1:
-            pickled_clients = self.ucbSampler.select_participant(numOfClients, feasible_clients=clients_online_set)
+            picked_clients = self.ucbSampler.select_participant(numOfClients, feasible_clients=clients_online_set)
         elif self.mode == 'multi_aaai':
-
+            picked_clients = self.multiSampler.sample(clients_online, numOfClients)
         else:
             self.rng.shuffle(clients_online)
             client_len = min(numOfClients, len(clients_online) -1)
-            pickled_clients = clients_online[:client_len]
+            picked_clients = clients_online[:client_len]
 
-        return pickled_clients
+        return picked_clients
 
     def getAllMetrics(self):
         if self.mode == "oort":

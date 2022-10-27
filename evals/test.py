@@ -1,6 +1,6 @@
-# from fedscale.dataloaders import divide_data, utils_data
-# # from fedscale.core.fllibs import *
-# from fedscale.dataloaders.femnist import FEMNIST
+from fedscale.dataloaders import divide_data, utils_data
+# from fedscale.core.fllibs import *
+from fedscale.dataloaders.femnist import FEMNIST
 import argparse
 import json
 import numpy as np
@@ -196,8 +196,8 @@ import cvxpy as cp
 #         print(np.round(x.value))
 # print(problem.value)
 # print(x.value)
-
-x = cp.Variable(shape=(3), integer=True)
+print(cp.installed_solvers())
+x = cp.Variable(shape=(3), boolean=True)
 v = np.asarray([1,2,2])
 freq = (x + v)
 avg_freq = cp.sum(freq) / x.shape[0]
@@ -206,7 +206,7 @@ print(freq_score.is_convex())
 
 obj_expr = freq_score
 obj = cp.Minimize(obj_expr)
-constraints = [cp.sum(x) == 1, x >= 0, x <= 1]
+constraints = [cp.sum(x) == 1]
 problem = cp.Problem(obj, constraints=constraints)
 print(problem)
 problem.solve(solver=cp.SCIP, verbose=False)

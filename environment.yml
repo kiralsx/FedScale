@@ -12,6 +12,7 @@ dependencies:
   - numba=0.49.1
   - librosa=0.7.2
   - pip=20.0.2
+  - pyscipopt=3.5.0
   - pip:
     - torch_optimizer
     - torch
@@ -34,3 +35,5 @@ dependencies:
     - sentencepiece
     - gdown
     - h5py
+    - cvxpy
+    - cvxopt
