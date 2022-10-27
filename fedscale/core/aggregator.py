@@ -224,7 +224,7 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
         """Triggered once receive new executor registration"""
         assert sorted(list(self.args_dict.keys())) == sorted(list(info_dict.keys()))
         # TODO: remove this
-        num_clients = 50
+        num_clients = 10
         for job_name, info in info_dict.items():
             # logging.info(f"Loading executor[{executorId}] for jobname {job_name} {len(info['size'])} client traces ...")
             logging.info(f"Loading executor[{executorId}] for jobname {job_name} {num_clients} client traces ...")
@@ -488,8 +488,6 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
                         job_name = job_name,
                         select_num_participants=self.args_dict[job_name].total_worker,
                         overcommitment=self.args_dict[job_name].overcommitment)
-
-        logging.info(f'selected clients next round: {selected_clients_next_round}')
 
         (clientsToRun, round_stragglers, client_cost, round_duration, flatten_client_duration, client_duration_dict) \
             = self.tictak_client_tasks(job_name, selected_clients_next_round, self.args_dict[job_name].total_worker)
@@ -785,7 +783,7 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
                 for job_name in self.client_manager:
                     logging.info(f'Job: {job_name}')
                     client_perf_dict[job_name] = self.client_manager[job_name].getPerf()
-                    print(client_perf_dict[job_name])  
+                    logging.info(f'{client_perf_dict[job_name]}')  
 
                 with open('/workspace/FedScale/evals/client_perf.txt', 'w') as file:
                     file.write(json.dumps(client_perf_dict))

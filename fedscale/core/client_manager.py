@@ -203,7 +203,7 @@ class clientManager(object):
                 else:
                     aval = True
                     for slots in busy_clients[x]:
-                        if cur_time > slots[0] and cur_time < slots[1]:
+                        if cur_time >= slots[0] and cur_time < slots[1]:
                             aval = False
                             break
                     if aval:
