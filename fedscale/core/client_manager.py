@@ -23,7 +23,11 @@ class clientManager(object):
             sys.path.append(parent)
             from thirdparty.oort.oort import create_training_selector
             #sys.path.append(current) 
-            self.ucbSampler =  create_training_selector(args=args)
+            self.ucbSampler = create_training_selector(args=args)
+        elif self.model == 'multi_aaai':
+            from thirdparty.multi_aaai.multi_aaai import create_training_selector
+            self.multiSampler = cre
+        logging.info(f'!!!!!!!!{self.mode}')
         self.feasibleClients = []
         self.rng = Random()
         self.rng.seed(sample_seed)
@@ -31,6 +35,9 @@ class clientManager(object):
         self.feasible_samples = 0
         self.user_trace = None
         self.args = args
+
+        # for multi scheduling aaai paper
+        self.client_selection_time = dict()
 
         if args.device_avail_file is not None:
             with open(args.device_avail_file, 'rb') as fin:
@@ -56,6 +63,10 @@ class clientManager(object):
                 self.ucbSampler.register_client(clientId, feedbacks=feedbacks)
         else:
             del self.Clients[uniqueId]
+
+        # init the selection time of clients 
+        for clientid in self.feasibleClients:
+            self.client_selection_time[clientid] = 0
 
     def getAllClients(self):
         return self.feasibleClients
@@ -222,6 +233,8 @@ class clientManager(object):
 
         if self.mode == "oort" and self.count > 1:
             pickled_clients = self.ucbSampler.select_participant(numOfClients, feasible_clients=clients_online_set)
+        elif self.mode == 'multi_aaai':
+
         else:
             self.rng.shuffle(clients_online)
             client_len = min(numOfClients, len(clients_online) -1)

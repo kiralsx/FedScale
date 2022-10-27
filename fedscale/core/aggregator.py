@@ -103,6 +103,8 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
         self.stop_exectuors = 0
         self.shutdown = False
 
+        self.sync = False
+
         # ======== Task specific ============
         self.init_task_context()
 
@@ -445,7 +447,8 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
 
         assert len({jn for jn, _ in self.resource_manager.get_queue() if jn == job_name}) == 0, f'job {job_name} has pending tasks in resource manager'
         self.round[job_name] += 1
-        self.global_virtual_clock[job_name] += self.round_duration[job_name]
+        if self.sync:
+            self.global_virtual_clock[job_name] += self.round_duration[job_name]
 
         if self.round[job_name] > self.args_dict[job_name].rounds:
             logging.info(f'############ completion handler for {job_name} ############ ' + \
@@ -817,23 +820,25 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
                             round_completed = False
                             break
                     if round_completed:
-                        """async"""
-                        schedule_next_job = True
-                        real_clock = {k: v+self.round_duration[k] for k, v in self.global_virtual_clock.items()}
-                        while schedule_next_job:
-                            logging.info(f'clock time: {real_clock}')
-                            job_name = min(real_clock, key=real_clock.get)
-                            self.round_completion_handler(job_name)
-                            del real_clock[job_name]
-                            schedule_next_job = len(self.args_dict) > 0 and job_name not in self.args_dict
-
-                        """ sync"""
-                        # # set the clock time of each job to be the slowest in the last round
-                        # for job_name in self.args_dict:
-                        #     self.global_virtual_clock[job_name] += np.max(list(self.round_duration.values()))
-                        # for job_name in self.args_dict:
-                        #     self.round_completion_handler(job_name)
-                        # assert len(set(list(self.global_virtual_clock.values()))) == 1, f'jobs have different clock time at the end of each round: {self.global_virtual_clock}'
+                        if self.sync:
+                            """async"""
+                            schedule_next_job = True
+                            real_clock = {k: v+self.round_duration[k] for k, v in self.global_virtual_clock.items()}
+                            while schedule_next_job:
+                                logging.info(f'clock time: {real_clock}')
+                                job_name = min(real_clock, key=real_clock.get)
+                                self.round_completion_handler(job_name)
+                                del real_clock[job_name]
+                                schedule_next_job = len(self.args_dict) > 0 and job_name not in self.args_dict
+                        else:
+                            """ sync"""
+                            # set the clock time of each job to be the slowest in the last round
+                            for job_name in self.args_dict:
+                                self.global_virtual_clock[job_name] += np.max(list(self.round_duration.values()))
+                            job_list = list(self.args_dict.keys()).copy()
+                            for job_name in job_list:
+                                self.round_completion_handler(job_name)
+                            assert len(self.global_virtual_clock) == 0 or len(set(list(self.global_virtual_clock.values()))) == 1, f'jobs have different clock time at the end of each round: {self.global_virtual_clock}'
 
                 elif current_event == events.MODEL_TEST:
                     job_name = meta

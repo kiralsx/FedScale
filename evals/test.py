@@ -1,12 +1,12 @@
-from fedscale.dataloaders import divide_data, utils_data
-# from fedscale.core.fllibs import *
-from fedscale.dataloaders.femnist import FEMNIST
+# from fedscale.dataloaders import divide_data, utils_data
+# # from fedscale.core.fllibs import *
+# from fedscale.dataloaders.femnist import FEMNIST
 import argparse
 import json
 import numpy as np
-import matplotlib.pyplot as plt
+# import matplotlib.pyplot as plt
 import os
-
+import cvxpy as cp
 
 
 """ ############ check femnist data map ############"""
@@ -71,34 +71,34 @@ import os
 
 """ ############ check system / stats utility ############"""
 # client_perf = json.load(open('/workspace/FedScale/evals/client_perf.txt'))['femnist-1']
-client_perf = json.load(open('/workspace/FedScale/evals/client_perf.txt'))['femnist-1']
+# client_perf = json.load(open('/workspace/FedScale/evals/client_perf.txt'))['femnist-1']
 
-round_duration = []
-for client_id, util in client_perf.items():
-    round_duration.append(util['1']['duration'])
-round_duration_norm = []
-for x in round_duration:
-    round_duration_norm.append((x - np.min(round_duration)) / (np.max(round_duration) - np.min(round_duration)))
+# round_duration = []
+# for client_id, util in client_perf.items():
+#     round_duration.append(util['1']['duration'])
+# round_duration_norm = []
+# for x in round_duration:
+#     round_duration_norm.append((x - np.min(round_duration)) / (np.max(round_duration) - np.min(round_duration)))
 
-round_duration = round_duration_norm
-round_duration = [1-x for x in round_duration]
+# round_duration = round_duration_norm
+# round_duration = [1-x for x in round_duration]
 
-num_rounds = len(client_perf['1'])
-num_clients = len(client_perf)
-stats_util = np.zeros((num_rounds, num_clients))
-for i in range(1, num_rounds+1):
-    for j in range(1, num_clients+1):
-        stats_util[i-1][j-1] = client_perf[str(j)][str(i)]['stats util']
+# num_rounds = len(client_perf['1'])
+# num_clients = len(client_perf)
+# stats_util = np.zeros((num_rounds, num_clients))
+# for i in range(1, num_rounds+1):
+#     for j in range(1, num_clients+1):
+#         stats_util[i-1][j-1] = client_perf[str(j)][str(i)]['stats util']
 
-for i in range(num_rounds):
-    norm = []
-    util = stats_util[i]
-    for x in util:
-        norm.append((x - np.min(util)) / (np.max(util) - np.min(util)))
-    stats_util[i] = norm
+# for i in range(num_rounds):
+#     norm = []
+#     util = stats_util[i]
+#     for x in util:
+#         norm.append((x - np.min(util)) / (np.max(util) - np.min(util)))
+#     stats_util[i] = norm
 
-stats_util_dict = {}
-stats_util_dict['femnist-1'] = stats_util
+# stats_util_dict = {}
+# stats_util_dict['femnist-1'] = stats_util
 
 # at a singel time slot
 # fig, ax = plt.subplots()
@@ -133,45 +133,88 @@ stats_util_dict['femnist-1'] = stats_util
 
 
 
-client_perf = json.load(open('/workspace/FedScale/evals/client_perf.txt'))['speech-1']
+# client perf
+# client_perf = json.load(open('/workspace/FedScale/evals/client_perf.txt'))['speech-1']
 
-round_duration = []
-for client_id, util in client_perf.items():
-    round_duration.append(util['1']['duration'])
-round_duration_norm = []
-for x in round_duration:
-    round_duration_norm.append((x - np.min(round_duration)) / (np.max(round_duration) - np.min(round_duration)))
+# round_duration = []
+# for client_id, util in client_perf.items():
+#     round_duration.append(util['1']['duration'])
+# round_duration_norm = []
+# for x in round_duration:
+#     round_duration_norm.append((x - np.min(round_duration)) / (np.max(round_duration) - np.min(round_duration)))
 
-round_duration = round_duration_norm
-round_duration = [1-x for x in round_duration]
+# round_duration = round_duration_norm
+# round_duration = [1-x for x in round_duration]
 
-num_rounds = len(client_perf['1'])
-num_clients = len(client_perf)
-stats_util = np.zeros((num_rounds, num_clients))
-for i in range(1, num_rounds+1):
-    for j in range(1, num_clients+1):
-        stats_util[i-1][j-1] = client_perf[str(j)][str(i)]['stats util']
+# num_rounds = len(client_perf['1'])
+# num_clients = len(client_perf)
+# stats_util = np.zeros((num_rounds, num_clients))
+# for i in range(1, num_rounds+1):
+#     for j in range(1, num_clients+1):
+#         stats_util[i-1][j-1] = client_perf[str(j)][str(i)]['stats util']
 
-for i in range(num_rounds):
-    norm = []
-    util = stats_util[i]
-    for x in util:
-        norm.append((x - np.min(util)) / (np.max(util) - np.min(util)))
-    stats_util[i] = norm
+# for i in range(num_rounds):
+#     norm = []
+#     util = stats_util[i]
+#     for x in util:
+#         norm.append((x - np.min(util)) / (np.max(util) - np.min(util)))
+#     stats_util[i] = norm
 
-stats_util_dict['speech-1'] = stats_util
+# stats_util_dict['speech-1'] = stats_util
 
-time_slot = 2
-fig, ax = plt.subplots()
-ax.plot(range(num_clients), stats_util_dict['femnist-1'][time_slot], 'x--', label="femnist", markevery=1, markersize=3, markerfacecolor = 'none', linewidth = 1)
-ax.plot(range(num_clients), stats_util_dict['speech-1'][time_slot], 'o--', label="speech", markevery=1, markersize=3, markerfacecolor = 'none', linewidth = 1)
-ax.set_xlabel("Client ID", fontsize=15)
-ax.set_ylabel("Stats Utility", fontsize=15)
-# ax.ticklabel_format(style='sci', scilimits=(-1,2), axis='y')
-# ax.grid()
-# ax.set_xlim([0, T])
-# ax.set_ylim(0)
-# ax.tick_params(axis='both', labelsize=13)
-ax.legend(loc="best")
-plt.tight_layout()
-plt.savefig("./multi_util.png")
+# time_slot = 2
+# fig, ax = plt.subplots()
+# ax.plot(range(num_clients), stats_util_dict['femnist-1'][time_slot], 'x--', label="femnist", markevery=1, markersize=3, markerfacecolor = 'none', linewidth = 1)
+# ax.plot(range(num_clients), stats_util_dict['speech-1'][time_slot], 'o--', label="speech", markevery=1, markersize=3, markerfacecolor = 'none', linewidth = 1)
+# ax.set_xlabel("Client ID", fontsize=15)
+# ax.set_ylabel("Stats Utility", fontsize=15)
+# # ax.ticklabel_format(style='sci', scilimits=(-1,2), axis='y')
+# # ax.grid()
+# # ax.set_xlim([0, T])
+# # ax.set_ylim(0)
+# # ax.tick_params(axis='both', labelsize=13)
+# ax.legend(loc="best")
+# plt.tight_layout()
+# plt.savefig("./multi_util.png")
+
+
+
+
+""" test cvxpy to take the max of serverl terms"""
+# x = cp.Variable(shape=(3), boolean=True)
+# v = np.asarray([1,2,3])
+# obj_expr = cp.max(cp.multiply(x,v))
+# obj = cp.Minimize(obj_expr)
+# constraints = [cp.sum(x) == 2]
+# problem = cp.Problem(obj, constraints=constraints)
+# problem.solve(solver=cp.GLPK_MI, glpk={'msg_lev': 'GLP_MSG_OFF'}, verbose=False)
+# if problem.status != 'optimal':
+#         print("Status: ", problem.status)
+#         print(f"Problem: {problem}")
+#         print("The optimal value is", problem.value)
+#         print("A solution x is")
+#         print(np.round(x.value))
+# print(problem.value)
+# print(x.value)
+
+x = cp.Variable(shape=(3), integer=True)
+v = np.asarray([1,2,2])
+freq = (x + v)
+avg_freq = cp.sum(freq) / x.shape[0]
+freq_score = cp.sum(cp.square(freq - avg_freq)) / x.shape[0]
+print(freq_score.is_convex())
+
+obj_expr = freq_score
+obj = cp.Minimize(obj_expr)
+constraints = [cp.sum(x) == 1, x >= 0, x <= 1]
+problem = cp.Problem(obj, constraints=constraints)
+print(problem)
+problem.solve(solver=cp.SCIP, verbose=False)
+if problem.status != 'optimal':
+        print("Status: ", problem.status)
+        print(f"Problem: {problem}")
+        print("The optimal value is", problem.value)
+        print("A solution x is")
+        print(np.round(x.value))
+print(problem.value)
+print(x.value)
