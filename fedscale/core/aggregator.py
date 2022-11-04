@@ -103,7 +103,7 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
         self.stop_exectuors = 0
         self.shutdown = False
 
-        self.sync = False
+        self.distributed = True
 
         # ======== Task specific ============
         self.init_task_context()
@@ -227,7 +227,7 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
         """Triggered once receive new executor registration"""
         assert sorted(list(self.args_dict.keys())) == sorted(list(info_dict.keys()))
         # TODO: remove this
-        num_clients = 10
+        num_clients = 100
         for job_name, info in info_dict.items():
             # logging.info(f"Loading executor[{executorId}] for jobname {job_name} {len(info['size'])} client traces ...")
             logging.info(f"Loading executor[{executorId}] for jobname {job_name} {num_clients} client traces ...")
@@ -448,7 +448,7 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
 
         assert len({jn for jn, _ in self.resource_manager.get_queue() if jn == job_name}) == 0, f'job {job_name} has pending tasks in resource manager'
         self.round[job_name] += 1
-        if self.sync:
+        if self.distributed:
             self.global_virtual_clock[job_name] += self.round_duration[job_name]
 
         if self.round[job_name] > self.args_dict[job_name].rounds:
@@ -480,11 +480,6 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
                         time_stamp=self.round[job_name],
                         duration=self.client_cost[job_name][clientId]['computation']+self.client_cost[job_name][clientId]['communication'],
                         success=False)
-        
-        # dump round completion information to tensorboard
-        avg_loss = sum(self.loss_accumulator[job_name])/max(1, len(self.loss_accumulator[job_name]))
-        if len(self.loss_accumulator[job_name]):
-            self.log_train_result(job_name, avg_loss)
 
         # update select participants
         self.client_lock.acquire()
@@ -499,13 +494,15 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
         for client_id in client_duration_dict:
             slot_start = self.global_virtual_clock[job_name]
             slot_end = slot_start + client_duration_dict[client_id]
+            assert client_duration_dict[client_id] <= round_duration, f'{client_duration_dict[client_id]} > {round_duration}'
             if client_id not in self.busy_clients:
                 self.busy_clients[client_id] = [(slot_start, slot_end)]
             else:
                 self.busy_clients[client_id].append((slot_start, slot_end))
         
         self.client_lock.release()
-
+        
+        avg_loss = sum(self.loss_accumulator[job_name])/max(1, len(self.loss_accumulator[job_name]))
         logging.info(f'############ completion handler for {job_name} ############, ' +\
                      f'Wall Clock: {round(self.global_virtual_clock[job_name])}s, '+\
                      f'Round: {self.round[job_name]}, '+\
@@ -537,6 +534,10 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
         self.stats_util_accumulator[job_name] = []
         self.client_training_results[job_name] = []
 
+        # dump round completion information to tensorboard
+        if len(self.loss_accumulator[job_name]):
+            self.log_train_result(job_name, avg_loss)
+
         if self.round[job_name] % self.args_dict[job_name].eval_interval == 0:
             self.broadcast_aggregator_events(job_name, events.UPDATE_MODEL)
             self.broadcast_aggregator_events(job_name, events.MODEL_TEST)
@@ -552,6 +553,7 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
         self.log_writer.add_scalar(f'{job_name}/FAR/time_to_train_loss (min)', avg_loss, self.global_virtual_clock[job_name]/60.)
         self.log_writer.add_scalar(f'{job_name}/FAR/round_duration (min)', self.round_duration[job_name]/60., self.round[job_name])
         self.log_writer.add_histogram(f'{job_name}/FAR/client_duration (min)', self.flatten_client_duration[job_name], self.round[job_name])
+
 
     def log_test_result(self, job_name):
         self.log_writer.add_scalar(f'{job_name}/Test/round_to_loss', self.testing_history[job_name]['perf'][self.round[job_name]]['loss'], self.round[job_name])
@@ -821,7 +823,7 @@ class Aggregator(job_api_pb2_grpc.JobServiceServicer):
                             round_completed = False
                             break
                     if round_completed:
-                        if self.sync:
+                        if self.distributed:
                             """async"""
                             schedule_next_job = True
                             real_clock = {k: v+self.round_duration[k] for k, v in self.global_virtual_clock.items()}

@@ -7,7 +7,7 @@ import numpy as np
 # import matplotlib.pyplot as plt
 import os
 import cvxpy as cp
-
+import copy
 
 """ ############ check femnist data map ############"""
 # train_transform, test_transform = utils_data.get_data_transform('mnist')
@@ -196,25 +196,29 @@ import cvxpy as cp
 #         print(np.round(x.value))
 # print(problem.value)
 # print(x.value)
-print(cp.installed_solvers())
-x = cp.Variable(shape=(3), boolean=True)
-v = np.asarray([1,2,2])
-freq = (x + v)
-avg_freq = cp.sum(freq) / x.shape[0]
-freq_score = cp.sum(cp.square(freq - avg_freq)) / x.shape[0]
-print(freq_score.is_convex())
+# print(cp.installed_solvers())
+# x = cp.Variable(shape=(3), boolean=True)
+# v = np.asarray([1,2,2])
+# freq = (x + v)
+# avg_freq = cp.sum(freq) / x.shape[0]
+# freq_score = cp.sum(cp.square(freq - avg_freq)) / x.shape[0]
+# print(freq_score.is_convex())
 
-obj_expr = freq_score
-obj = cp.Minimize(obj_expr)
-constraints = [cp.sum(x) == 1]
-problem = cp.Problem(obj, constraints=constraints)
-print(problem)
-problem.solve(solver=cp.SCIP, verbose=False)
-if problem.status != 'optimal':
-        print("Status: ", problem.status)
-        print(f"Problem: {problem}")
-        print("The optimal value is", problem.value)
-        print("A solution x is")
-        print(np.round(x.value))
-print(problem.value)
-print(x.value)
+# obj_expr = freq_score
+# obj = cp.Minimize(obj_expr)
+# constraints = [cp.sum(x) == 1]
+# problem = cp.Problem(obj, constraints=constraints)
+# print(problem)
+# problem.solve(solver=cp.SCIP, verbose=False)
+# if problem.status != 'optimal':
+#         print("Status: ", problem.status)
+#         print(f"Problem: {problem}")
+#         print("The optimal value is", problem.value)
+#         print("A solution x is")
+#         print(np.round(x.value))
+# print(problem.value)
+# print(x.value)
+
+
+a = [1,2]
+print(list(np.array(a)))

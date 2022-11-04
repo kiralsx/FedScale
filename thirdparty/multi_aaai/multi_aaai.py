@@ -1,6 +1,12 @@
 import cvxpy as cp
 import numpy as np
 import logging
+import math
+import copy
+
+def nCr(n,r):
+    f = math.factorial
+    return f(n) // f(r) // f(n-r)
 
 
 class MultiSampler(object):
@@ -8,6 +14,8 @@ class MultiSampler(object):
         # for multi scheduling aaai paper
         self.client_freq = dict()
         self.client_round_time = dict()
+        self.sample_size = 100
+        self.observations = dict()
     
 
     def register_client(self, client_id):
@@ -22,6 +30,44 @@ class MultiSampler(object):
 
 
     def sample(self, available_clients, num_clients_to_select):
+        assert len(self.client_round_time) == len(self.client_freq)
+        
+        num_valid_solns = nCr(len(available_clients), num_clients_to_select)
+        # num_sampled_solns = int(self.sample_perc * num_valid_solns)
+        logging.info(f'[multi_aaai] sampled {self.sample_size} out of {num_valid_solns} solutions')
+
+        observations = copy.copy(self.observations)
+
+        for _ in range(min(num_valid_solns, self.sample_size)):
+            sol = np.sort(np.random.choice(available_clients, num_clients_to_select, replace=False))
+            assert len(sol) == len(set(sol))
+
+            time_score = np.max([self.client_round_time[cid] for cid in sol])
+
+            freq = copy.copy(self.client_freq)
+            for cid in sol:
+                freq[cid] += 1
+
+            mean_freq = np.mean(list(freq.values()))
+
+            stats_score = np.mean([(v-mean_freq)**2 for v in freq.values()])
+
+            score = 0.001 * time_score + stats_score
+
+            observations[tuple(sol)] = score
+        
+        opt_sol, opt_score = min(observations.items(), key=lambda x: x[1]) 
+
+        self.observations[opt_sol] = opt_score
+
+        # update freq
+        for cid in opt_sol:
+            self.client_freq[cid] += 1 
+        
+        return list(opt_sol)
+
+
+    def sample_opt(self, available_clients, num_clients_to_select):
         assert len(self.client_round_time) == len(self.client_freq)
         
         x = cp.Variable(shape=(len(available_clients)), boolean=True)
