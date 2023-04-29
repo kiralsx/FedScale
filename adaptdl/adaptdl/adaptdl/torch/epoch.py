@@ -132,26 +132,26 @@ LOG.setLevel(logging.INFO)
 #             _epoch_state().current_epoch = None
 
 
-def current_epoch():
-    """
-    Get the current epoch while iterating with :func:`remaining_epochs_until`.
+# def current_epoch():
+#     """
+#     Get the current epoch while iterating with :func:`remaining_epochs_until`.
 
-    Returns:
-        int or None: The current epoch number if called from within a
-        :func:`remaining_epochs_until` iteration, ``None`` otherwise.
-    """
-    return _epoch_state().current_epoch
+#     Returns:
+#         int or None: The current epoch number if called from within a
+#         :func:`remaining_epochs_until` iteration, ``None`` otherwise.
+#     """
+#     return _epoch_state().current_epoch
 
 
-def finished_epochs():
-    """
-    Get the number of epochs finished using :func:`remaining_epochs_until`.
+# def finished_epochs():
+#     """
+#     Get the number of epochs finished using :func:`remaining_epochs_until`.
 
-    Returns:
-        int: The number of finished epochs. Equal to :func:`current_epoch`
-        if called from within a :func:`remaining_epochs_until` iteration.
-    """
-    return _epoch_state().finished_epochs
+#     Returns:
+#         int: The number of finished epochs. Equal to :func:`current_epoch`
+#         if called from within a :func:`remaining_epochs_until` iteration.
+#     """
+#     return _epoch_state().finished_epochs
 
 
 class _EpochState(adaptdl.checkpoint.State):
@@ -167,21 +167,21 @@ class _EpochState(adaptdl.checkpoint.State):
         self.finished_epochs = pickle.load(fileobj)
 
 
-def _epoch_state():
-    global _EPOCH_STATE
-    if _EPOCH_STATE is None:
-        _EPOCH_STATE = _EpochState()
-        adaptdl.checkpoint.load_state(_EPOCH_STATE)
-    return _EPOCH_STATE
+# def _epoch_state():
+#     global _EPOCH_STATE
+#     if _EPOCH_STATE is None:
+#         _EPOCH_STATE = _EpochState()
+#         adaptdl.checkpoint.load_state(_EPOCH_STATE)
+#     return _EPOCH_STATE
 
 
-_EPOCH_STATE = None
+# _EPOCH_STATE = None
 
 
 class AdaptiveEpoch():
-    def __init__(self):
+    def __init__(self, ckpt_dir=None):
         self._state = _EpochState()
-        adaptdl.checkpoint.load_state(self._state, ckpt_dir="/workspace/FedScale/adapt/cifar/output/1024-ckpt")
+        adaptdl.checkpoint.load_state(self._state, ckpt_dir=ckpt_dir)
 
     def current_epoch(self):
         return self._state.current_epoch

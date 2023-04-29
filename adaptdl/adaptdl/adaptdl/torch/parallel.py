@@ -32,8 +32,8 @@ from adaptdl.torch.data import current_dataloader
 from adaptdl.torch.scaling_rules import AdaScale, AdamScale, ScalingRuleBase
 from adaptdl.torch.gradient_noise_scale import GradientNoiseScale,\
                                                AdamGradientNoiseScale
-from adaptdl.torch._metrics import profile_sync_time, update_grad_params,\
-                                   update_progress
+# from adaptdl.torch._metrics import profile_sync_time, update_grad_params,\
+#                                    update_progress
 
 
 class AdaptiveDataParallel(DistributedDataParallel):
@@ -56,9 +56,9 @@ class AdaptiveDataParallel(DistributedDataParallel):
         name (string): Unique name for each instance of this class, needed only
         if multiple instances exist.
     """
-    def __init__(self, model, optimizer, lr_scheduler=None, mp_scaler=None,
+    def __init__(self, model, optimizer, metrics, lr_scheduler=None, mp_scaler=None,
                  scaling_rule: Optional[ScalingRuleBase] = None,
-                 name="adaptdl-dataparallel", **kwargs):
+                 name="adaptdl-dataparallel", ckpt_dir=None, **kwargs):
         super().__init__(model, **kwargs)
         self._key = id(self)
         # Register backward hooks on model parameters. Depends on these hooks
@@ -66,8 +66,11 @@ class AdaptiveDataParallel(DistributedDataParallel):
         # internal behavior of DistributedDataParallel, but seems to be abused
         # pretty widely so there should be little chance of it changing.
         # https://discuss.pytorch.org/t/59291
+        handles = []
         for param in model.parameters():
-            param.register_hook(functools.partial(self._backward_hook, param))
+            handle = param.register_hook(functools.partial(self._backward_hook, param))
+            handles.append(handle)
+        self.handles = handles
 
         # Setup for the scaling_rule, must be after registering backward hooks
         # because some of them need to register their own backward hooks.
@@ -86,9 +89,22 @@ class AdaptiveDataParallel(DistributedDataParallel):
 
         self._state = _AdaptiveDataParallelState(
             model, optimizer, lr_scheduler, mp_scaler, name)
-        adaptdl.checkpoint.load_state(self._state, ckpt_dir="/workspace/FedScale/adapt/cifar/output/1024-ckpt")
+        adaptdl.checkpoint.load_state(self._state, ckpt_dir=ckpt_dir)
 
         self._sync_start = None
+
+        self._metrics = metrics
+
+    
+    # def remove(self):
+    #     for handle in self.handles:
+    #         handle.remove()
+
+    #     self.gns.remove_hooks()
+    #     self.gns = None
+
+    #     self.scaling_rule.remove()
+    #     self.scaling_rule = None
 
     def forward(self, *args, **kwargs):
         # Do not do gradient synchronization during gradient accumulation.
@@ -141,9 +157,9 @@ class AdaptiveDataParallel(DistributedDataParallel):
             sync_end = torch.cuda.Event(enable_timing=True)
             sync_end.record()
             sync_end.synchronize()
-            profile_sync_time(self._sync_start.elapsed_time(sync_end) / 1e3)
+            self._metrics.profile_sync_time(self._sync_start.elapsed_time(sync_end) / 1e3)
         else:
-            profile_sync_time(time.time() - self._sync_start)
+            self._metrics.profile_sync_time(time.time() - self._sync_start)
 
         dataloader = current_dataloader()
         if dataloader is None:
@@ -156,10 +172,10 @@ class AdaptiveDataParallel(DistributedDataParallel):
         self._state.gain = self.gns.gain(scale)
         self._state.lr_factor = \
             np.average(self.scaling_rule.scale_lr(scale))
-        update_progress(self.gns.get_progress())
+        self._metrics.update_progress(self.gns.get_progress())
         if dataloader.max_batch_size and \
                 dataloader.max_batch_size > dataloader.batch_size:
-            update_grad_params(self._key, self.gns.sqr_avg(),
+            self._metrics.update_grad_params(self._key, self.gns.sqr_avg(),
                                self.gns.var_avg())
         self._sync_start = None
 
@@ -231,7 +247,7 @@ class _AdaptiveDataParallelState(adaptdl.checkpoint.State):
 
     def load(self, fileobj):
         state_dicts, self.gain, self.lr_factor = torch.load(fileobj)
-        self.model.load_state_dict(state_dicts[0])
+        # self.model.load_state_dict(state_dicts[0])
         self.optimizer.load_state_dict(state_dicts[1])
         if state_dicts[2] is not None:
             self.lr_scheduler.load_state_dict(state_dicts[2])

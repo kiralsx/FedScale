@@ -100,12 +100,18 @@ class ScalingRuleBase(object):
         self._optimizer.step = MethodType(step_wrapper, self._optimizer)
         self._optimizer.zero_grad = MethodType(zero_wrapper, self._optimizer)
 
+    # def remove(self):
+    #     self.adp = None
+    #     self._optimizer = None
+    #     self._orig_optimizer_step = None
+
     def initialize(self, adp, optimizer, patch_optimizer=False):
         self.adp = adp
         self._optimizer = optimizer
         self._orig_optimizer_step = optimizer.step
         if patch_optimizer:
             self._patch_optimizer()
+
 
 
 class AdaScale(ScalingRuleBase):
@@ -123,6 +129,7 @@ class AdaScale(ScalingRuleBase):
         var = np.maximum(var, 1e-6)
         sqr = np.maximum(sqr,  0.0)
         return (var + sqr) / (var / scale + sqr)
+
 
 
 class AdamScale(AdaScale):

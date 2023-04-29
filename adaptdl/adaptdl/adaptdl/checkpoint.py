@@ -26,7 +26,7 @@ import logging
 
 from adaptdl.env import checkpoint_path, replica_rank, num_restarts, from_ray
 
-logging.basicConfig(level=logging.INFO)
+# logging.basicConfig(level=logging.INFO)
 # logging.basicConfig(
 #                     # format='%(asctime)s %(levelname)-8s [%(filename)s:%(lineno)d] %(message)s',
 #                     format='[%(filename)s:%(lineno)d] %(message)s',
@@ -35,7 +35,7 @@ logging.basicConfig(level=logging.INFO)
 
 
 LOG = logging.getLogger(__name__)
-LOG.setLevel(logging.INFO)
+LOG.setLevel(logging.WARNING)
 
 CKPT_DIR_PREFIX = "checkpoint-"
 

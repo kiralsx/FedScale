@@ -34,7 +34,7 @@ import semver
 # from .epoch import remaining_epochs_until
 from .data import current_dataloader, AdaptiveDataLoader, ElasticSampler
 from .parallel import AdaptiveDataParallel
-from .accumulator import Accumulator
+# from .accumulator import Accumulator
 
 logging.basicConfig(level=logging.INFO)
 LOG = logging.getLogger(__name__)

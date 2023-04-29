@@ -28,9 +28,9 @@ import adaptdl.checkpoint
 import adaptdl.collective
 import adaptdl.env
 # from adaptdl.torch.epoch import current_epoch
-from adaptdl.torch._metrics import (
-    profile_step_start, profile_step_commit,
-    set_batch_size, get_goodput_fn, get_progress)
+# from adaptdl.torch._metrics import (
+#     profile_step_start, profile_step_commit,
+#     set_batch_size, get_goodput_fn, get_progress)
 from adaptdl._signal import get_exit_flag
 
 logging.basicConfig(level=logging.INFO)
@@ -139,19 +139,21 @@ class AdaptiveDataLoaderHelper(object):
     _training = None  # The AdaptiveDataLoader which loads training data.
     _current = None  # The AdaptiveDataLoader which is currently iterating.
 
-    def __init__(self, adaptive_epoch, batch_size=1):
+    def __init__(self, adaptive_epoch, metrics, ckpt_dir=None, batch_size=1):
         # Autoscale batch size fields.
         self._max_batch_size = None
         self._local_bsz_bounds = None
         # Create and load state.
         self._state = _AdaptiveDataLoaderState(adaptive_epoch)
-        adaptdl.checkpoint.load_state(self._state)
+        adaptdl.checkpoint.load_state(self._state, ckpt_dir=ckpt_dir)
+
         self.batch_size = batch_size
         self.future_exit = None
         self._gradient_accumulation = False
         self._speedup_threshold = 1.05
         self._accum_count = 0
         self._adaptive_epoch = adaptive_epoch
+        self._metrics = metrics
 
     @property
     def current_index(self):
@@ -237,7 +239,7 @@ class AdaptiveDataLoaderHelper(object):
         """
         if AdaptiveDataLoaderHelper._training is None:
             AdaptiveDataLoaderHelper._training = self
-        set_batch_size(self.batch_size, self.max_batch_size,
+        self._metrics.set_batch_size(self.batch_size, self.max_batch_size,
                        self.local_bsz_bounds, self._gradient_accumulation)
 
     def autoscale_batch_size(self, max_batch_size, local_bsz_bounds=None,
@@ -269,26 +271,30 @@ class AdaptiveDataLoaderHelper(object):
         self.train()
 
     def _sync_local_bsz(self): 
-        goodput_fn = get_goodput_fn()
+        goodput_fn = self._metrics.get_goodput_fn()
         if self.max_batch_size is None or goodput_fn is None:
-            print("not scale")
+            # print("not scale")
             # No autoscale batch size, just divide batch size evenly.
             self._state.current_local_bsz = math.ceil(
                 self.batch_size / adaptdl.env.num_replicas())
             self._state.accumulation_steps = 0
+            # print(f"set current_local_bsz = {self._state.current_local_bsz} ")
         elif not self._state.current_local_bsz:
-            print("first time init")
-            exit()
+            # print(f"first time init: {self._state.current_local_bsz}")
             # if init, use the batch size suggested
-            _, atomic_bsz, accum_steps = goodput_fn.optimize(
+            suggest_goodput, atomic_bsz, accum_steps = goodput_fn.optimize(
                 adaptdl.env.num_nodes(), adaptdl.env.num_replicas(),
                 max_batch_size=self._max_batch_size,
                 atomic_bsz_range=self._local_bsz_bounds,
                 accumulation=self._gradient_accumulation)
+            speedup = suggest_goodput / max(current_goodput, 1e-8)
+            if speedup > 1:
+                print(f"!!!! scale bsz {self._state.current_local_bsz} -> {atomic_bsz * (accum_steps+1)}")
             self._state.current_local_bsz = atomic_bsz
             self._state.accumulation_steps = accum_steps
+            
         else:
-            print("check speedup")
+            # print("check speedup")
             # if not first time, we check against the relative speedup
             suggest_goodput, atomic_bsz, accum_steps = goodput_fn.optimize(
                 adaptdl.env.num_nodes(), adaptdl.env.num_replicas(),
@@ -302,10 +308,10 @@ class AdaptiveDataLoaderHelper(object):
                 self.current_local_bsz, self.accumulation_steps)
             # use only if speedup is significant
             speedup = suggest_goodput / max(current_goodput, 1e-8)
-            print(f"best atomic bsz: {atomic_bsz} speedup: {speedup}")
+            # print(f"best atomic bsz: {atomic_bsz} speedup: {speedup}")
             # if speedup > self._speedup_threshold:
             if speedup > 1:
-                print(f"!!!! scale bsz {self._state.current_local_bsz} -> {atomic_bsz}")
+                print(f"!!!! scale bsz {self._state.current_local_bsz} -> {atomic_bsz * (accum_steps+1)}")
                 self._state.current_local_bsz = atomic_bsz
                 self._state.accumulation_steps = accum_steps
         self._state.current_local_bsz, self._state.accumulation_steps = \
@@ -335,10 +341,10 @@ class AdaptiveDataLoaderHelper(object):
             exit(143)  # Standard exit code response to SIGTERM.
         self.future_exit = adaptdl.collective.allreduce_async(
                     get_exit_flag(), lambda a, b: a or b)
-        profile_step_start(self.current_local_bsz)
+        self._metrics.profile_step_start(self.current_local_bsz)
         yield
         if commit:
-            profile_step_commit(self.is_accum_step())
+            self._metrics.profile_step_commit(self.is_accum_step())
         self._accum_count = (0 if self.is_optim_step()
                              else self._accum_count + 1)
 
@@ -419,9 +425,10 @@ class AdaptiveDataLoaderMixin(object):
     :class:`AdaptiveDataLoader`.
     """
 
-    def __init__(self, adaptive_epoch, batch_size):
-        self._elastic = AdaptiveDataLoaderHelper(adaptive_epoch, batch_size)
+    def __init__(self, adaptive_epoch, metrics, batch_size, ckpt_dir=None):
+        self._elastic = AdaptiveDataLoaderHelper(adaptive_epoch, metrics, batch_size=batch_size, ckpt_dir=ckpt_dir)
         self._adaptive_epoch = adaptive_epoch
+        self._metrics = metrics
 
     def autoscale_batch_size(self, max_batch_size, local_bsz_bounds=None,
                              gradient_accumulation=False):
@@ -502,7 +509,7 @@ class AdaptiveDataLoader(DataLoader, AdaptiveDataLoaderMixin):
 
     .. automethod:: __iter__
     """
-    def __init__(self, dataset, adaptive_epoch, batch_size=1, shuffle=False, **kwargs):
+    def __init__(self, dataset, adaptive_epoch, metrics, batch_size=1, ckpt_dir=None, shuffle=False, **kwargs):
         if kwargs.get("batch_sampler") is not None \
                 or kwargs.get("sampler") is not None:
             raise ValueError("AdaptiveDataLoader does not support "
@@ -513,7 +520,7 @@ class AdaptiveDataLoader(DataLoader, AdaptiveDataLoaderMixin):
         kwargs["worker_init_fn"] = _worker_init_wrapper(
             kwargs.get("worker_init_fn"), kwargs.get("num_workers"))
         super().__init__(dataset, batch_size, shuffle=False, **kwargs)
-        AdaptiveDataLoaderMixin.__init__(self, adaptive_epoch, batch_size)
+        AdaptiveDataLoaderMixin.__init__(self, adaptive_epoch, metrics, batch_size, ckpt_dir=ckpt_dir)
 
     def __iter__(self):
         """
@@ -547,7 +554,7 @@ class AdaptiveDataLoader(DataLoader, AdaptiveDataLoaderMixin):
                         self._elastic.current_index += \
                             num_replicas * self.batch_sampler.batch_size
                         if self._elastic.max_batch_size is not None and \
-                                get_progress() >= len(self.dataset) * \
+                                self._metrics.get_progress() >= len(self.dataset) * \
                                 (epoch + 1) / self.batch_size:
                             done = True
                             break
@@ -582,8 +589,9 @@ class _AdaptiveDataLoaderState(adaptdl.checkpoint.State):
 
     def save(self, fileobj):
         pickle.dump((self.current_index, self.end_index,
-                     self.last_position), fileobj)
+                     self.last_position, self.current_local_bsz), fileobj)
+
 
     def load(self, fileobj):
-        self.current_index, self.end_index, self.last_position = \
+        self.current_index, self.end_index, self.last_position, self.current_local_bsz = \
            pickle.load(fileobj)

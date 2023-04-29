@@ -44,6 +44,7 @@ def post_sched_hints(sched_hints, job_key):
     url = adaptdl.env.supervisor_url()
     if not url or url == "":
         return  # skip
+    raise NotImplementedError
     headers = {"Content-Type": "application/json"}
     try:
         for k in sched_hints:

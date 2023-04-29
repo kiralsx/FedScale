@@ -69,12 +69,19 @@ class GradientNoiseScale(object):
             "biased": False,
         })
 
+        handles = []
         for idx, param_group in enumerate(self._optimizer.param_groups):
             for param in param_group["params"]:
-                param.register_hook(
+                handle = param.register_hook(
                     functools.partial(self._backward_hook, idx, param))
+                handles.append(handle)
+        self.handles = handles
         self._callback_queued = False
         self._smoothing = 0.999
+
+    # def remove_hooks(self):
+    #     for handle in self.handles:
+    #         handle.remove()
 
     @property
     def _state(self):
