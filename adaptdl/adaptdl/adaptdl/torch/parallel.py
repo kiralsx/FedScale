@@ -96,15 +96,15 @@ class AdaptiveDataParallel(DistributedDataParallel):
         self._metrics = metrics
 
     
-    # def remove(self):
-    #     for handle in self.handles:
-    #         handle.remove()
+    def remove(self):
+        for handle in self.handles:
+            handle.remove()
 
-    #     self.gns.remove_hooks()
-    #     self.gns = None
+        self.gns.remove_hooks()
+        self.gns = None
 
-    #     self.scaling_rule.remove()
-    #     self.scaling_rule = None
+        self.scaling_rule.remove()
+        self.scaling_rule = None
 
     def forward(self, *args, **kwargs):
         # Do not do gradient synchronization during gradient accumulation.

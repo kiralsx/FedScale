@@ -100,10 +100,10 @@ class ScalingRuleBase(object):
         self._optimizer.step = MethodType(step_wrapper, self._optimizer)
         self._optimizer.zero_grad = MethodType(zero_wrapper, self._optimizer)
 
-    # def remove(self):
-    #     self.adp = None
-    #     self._optimizer = None
-    #     self._orig_optimizer_step = None
+    def remove(self):
+        self.adp = None
+        self._optimizer = None
+        self._orig_optimizer_step = None
 
     def initialize(self, adp, optimizer, patch_optimizer=False):
         self.adp = adp

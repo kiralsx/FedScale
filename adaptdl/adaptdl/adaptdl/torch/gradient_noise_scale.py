@@ -79,9 +79,9 @@ class GradientNoiseScale(object):
         self._callback_queued = False
         self._smoothing = 0.999
 
-    # def remove_hooks(self):
-    #     for handle in self.handles:
-    #         handle.remove()
+    def remove_hooks(self):
+        for handle in self.handles:
+            handle.remove()
 
     @property
     def _state(self):

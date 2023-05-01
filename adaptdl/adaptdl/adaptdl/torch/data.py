@@ -314,9 +314,10 @@ class AdaptiveDataLoaderHelper(object):
                 print(f"!!!! scale bsz {self._state.current_local_bsz} -> {atomic_bsz * (accum_steps+1)}")
                 self._state.current_local_bsz = atomic_bsz
                 self._state.accumulation_steps = accum_steps
-        self._state.current_local_bsz, self._state.accumulation_steps = \
-            adaptdl.collective.broadcast((self._state.current_local_bsz,
-                                          self._state.accumulation_steps))
+        # TODO: check me
+        # self._state.current_local_bsz, self._state.accumulation_steps = \
+        #     adaptdl.collective.broadcast((self._state.current_local_bsz,
+        #                                   self._state.accumulation_steps))
         return self.current_local_bsz
 
     @property
@@ -339,8 +340,9 @@ class AdaptiveDataLoaderHelper(object):
         if self.future_exit is not None and self.future_exit.result():
             adaptdl.checkpoint.save_all_states()
             exit(143)  # Standard exit code response to SIGTERM.
-        self.future_exit = adaptdl.collective.allreduce_async(
-                    get_exit_flag(), lambda a, b: a or b)
+        # TODO: check me
+        # self.future_exit = adaptdl.collective.allreduce_async(
+        #             get_exit_flag(), lambda a, b: a or b)
         self._metrics.profile_step_start(self.current_local_bsz)
         yield
         if commit:
@@ -367,6 +369,7 @@ class AdaptiveDataLoaderHelper(object):
             self._state.end_index = 0
             self._state.last_position[epoch] = self._position[epoch]
             self._position[epoch] += 1
+            logging.info(f"[context] position updated : { self._position[epoch]}")
             AdaptiveDataLoaderHelper._current = None
 
     @property
@@ -388,8 +391,8 @@ class AdaptiveDataLoaderHelper(object):
             # Already completed the dataloader loop at the current
             # position, skip this loop and keep replaying the application
             # code.
-            LOG.info("skipping %s loop at position %s in epoch %s",
-                     self.__class__.__name__, position, epoch)
+            LOG.info("[skipdone] skipping %s loop at position %s in epoch %s (last position %s)",
+                     self.__class__.__name__, position, epoch, self._state.last_position.get(epoch, -1))
             self._position[epoch] += 1
             return True
         else:
@@ -540,6 +543,7 @@ class AdaptiveDataLoader(DataLoader, AdaptiveDataLoaderMixin):
         epoch = self._adaptive_epoch.current_epoch()
         num_replicas = adaptdl.env.num_replicas()
         with self._elastic.context():
+            logging.info(f"[iter] position: {self._elastic._position[epoch]}")
             if self._elastic.skipdone():
                 return
             done = False
@@ -578,7 +582,8 @@ class _AdaptiveDataLoaderState(adaptdl.checkpoint.State):
         # epoch = current_epoch()
         epoch = adaptive_epoch.current_epoch()
         count = _AdaptiveDataLoaderState.init_count[epoch]
-        super().__init__("adaptdl-dataloader-epoch{}-{}".format(epoch, count))
+        # super().__init__("adaptdl-dataloader-epoch{}-{}".format(epoch, count))
+        super().__init__("adaptdl-dataloader")
         _AdaptiveDataLoaderState.init_count[epoch] += 1
 
         self.current_index = 0   # Index within the current dataloader loop.
@@ -590,6 +595,7 @@ class _AdaptiveDataLoaderState(adaptdl.checkpoint.State):
     def save(self, fileobj):
         pickle.dump((self.current_index, self.end_index,
                      self.last_position, self.current_local_bsz), fileobj)
+        logging.info(f"[save] current_index: {self.current_index} last_position: {self.last_position} current bsz: {self.current_local_bsz}")
 
 
     def load(self, fileobj):
